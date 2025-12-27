@@ -1,0 +1,1812 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nyx Studio - 管理者后台</title>
+  <meta name="description" content="Nyx Studio 管理者后台">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <!-- Supabase JS -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+
+<body>
+  <div class="bg-decoration"></div>
+  <div class="stars-container"></div>
+
+  <div class="main-content">
+    <div class="container container-wide" id="pageContent"></div>
+  </div>
+
+  <script src="supabase-config.js"></script>
+  <script src="utils.js"></script>
+  <script>
+    // 先初始化变量
+    let currentView = 'home';
+    let selectedReceptionist = null;
+    let cachedData = { orders: [], receptionists: [], penalties: [], announcements: [] };
+
+    // 检查权限
+    const user = requireManager();
+    if (!user) { /* 会自动跳转 */ } else { initApp(); }
+
+    async function initApp() {
+      showLoading('pageContent');
+      await loadAllData();
+      renderHome();
+    }
+
+    async function loadAllData() {
+      const [orders, receptionists, penalties, announcements] = await Promise.all([
+        cachedData.orders,
+        cachedData.receptionists,
+        DataStore.getPenalties(),
+        cachedData.announcements
+      ]);
+      cachedData = { orders, receptionists, penalties, announcements };
+    }
+
+    async function refreshData() {
+      await loadAllData();
+    }
+
+    async function setView(view, data = null) {
+      currentView = view;
+      selectedReceptionist = data;
+      showLoading('pageContent');
+      await refreshData();
+      switch (view) {
+        case 'home': renderHome(); break;
+        case 'reviewOrders': renderReviewOrders(); break;
+        case 'dailyIncome': renderDailyIncome(); break;
+        case 'weeklySettlement': renderWeeklySettlement(); break;
+        case 'submitBonus': renderSubmitBonus(); break;
+        case 'taskManagement': renderTaskManagement(); break;
+        case 'modifyCommission': renderModifyCommission(); break;
+        case 'monthlyFlow': renderMonthlyFlow(); break;
+        case 'manageReceptionists': renderManageReceptionists(); break;
+        case 'internManagement': renderInternManagement(); break;
+        case 'penalty': renderPenalty(); break;
+        case 'announcement': renderAnnouncement(); break;
+        case 'bossList': renderBossList(); break;
+        case 'bossDetail': renderBossDetail(selectedReceptionist); break;
+        case 'receptionistDetail': renderReceptionistDetail(selectedReceptionist); break;
+        case 'divinerDetail': renderDivinerDetail(selectedReceptionist); break;
+        case 'monthlyFlowDetail': renderMonthlyFlowDetail(selectedReceptionist); break;
+        default: renderHome();
+      }
+    }
+
+    function getBossBalanceSync(bossName) {
+      const bossOrders = cachedData.orders.filter(o => o.bossName === bossName && o.approved !== false);
+      const totalPrepaid = bossOrders.filter(o => o.type === 'prepaid').reduce((sum, o) => sum + (o.amount || 0), 0);
+      const totalDeducted = bossOrders.filter(o => o.type === 'deduct_prepaid').reduce((sum, o) => sum + (o.amount || 0), 0);
+      return totalPrepaid - totalDeducted;
+    }
+
+    function renderHeader() {
+      return `
+        <div class="page-header">
+          <h1 class="page-title">🐯 管理者后台</h1>
+          <button class="btn-text" onclick="logout()">退出登录</button>
+        </div>
+
+        ${currentView !== 'home' ? `
+          <button class="btn-text mb-4 flex items-center gap-2" onclick="setView('${(currentView === 'bossList' || currentView === 'bossDetail' || currentView === 'divinerDetail' || currentView === 'receptionistDetail') ? 'manageReceptionists' : (currentView === 'submitBonus' || currentView === 'modifyCommission') ? 'taskManagement' : 'home'}')">
+            ← 返回
+          </button>
+        ` : ''
+        }
+      `;
+    }
+
+    function renderHome() {
+      const orders = cachedData.orders;
+      const pendingCount = orders.filter(o => o.approved === false).length;
+      const receptionists = cachedData.receptionists.filter(r => r.role === 'receptionist' && !r.isDeleted);
+
+      let html = renderHeader() + `<div class="card">`;
+
+      html += `
+        <div class="flex flex-col" style="gap: 20px;">
+          <div style="position: relative;">
+            <button class="btn btn-primary btn-full" style="justify-content: flex-start;" onclick="setView('reviewOrders')">
+              ✅ 审核列表
+            </button>
+            ${pendingCount > 0 ? `<span class="notification-dot" style="position: absolute; top: 8px; right: 8px;"></span>` : ''}
+          </div>
+          <button class="btn btn-primary btn-full" style="justify-content: flex-start;" onclick="setView('dailyIncome')">📊 查看收入明细（每日）</button>
+          <button class="btn btn-secondary btn-full" style="justify-content: flex-start;" onclick="setView('monthlyFlow')">📈 当月接待累计流水</button>
+          <button class="btn btn-secondary btn-full" style="justify-content: flex-start;" onclick="setView('taskManagement')">📋 周任务完成清单</button>
+          <button class="btn btn-accent btn-full" style="justify-content: flex-start;" onclick="setView('weeklySettlement')">💵 周结算清单</button>
+          <button class="btn btn-secondary btn-full" style="justify-content: flex-start;" onclick="setView('manageReceptionists')">🔍 查找信息与补录</button>
+          <button class="btn btn-secondary btn-full" style="justify-content: flex-start;" onclick="setView('internManagement')">🎓 接待管理（实习）</button>
+          <button class="btn btn-secondary btn-full" style="justify-content: flex-start;" onclick="setView('announcement')">📢 通知公告系统</button>
+          <button class="btn btn-danger btn-full" style="justify-content: flex-start;" onclick="setView('penalty')">⚠️ 惩罚系统</button>
+        </div>
+      </div>`;
+
+      document.getElementById('pageContent').innerHTML = html;
+    }
+
+    // 老板名单视图
+    function renderBossList() {
+      // 默认加载所有有过预存单的老板
+      const orders = cachedData.orders;
+      // 获取所有有过预存单记录的老板名字（去重）
+      // 注意：这里我们定义"有存单的老板"为至少下过一次 prepaid 类型订单的老板
+      // 或者 是否包含 deduct_prepaid? 通常有过充值记录才算有存单老板。
+      const prepaidBosses = [...new Set(
+        orders
+          .filter(o => o.type === 'prepaid' && o.bossName)
+          .map(o => o.bossName)
+      )];
+
+      // 页面初始化
+      let html = renderHeader() + `
+        <div class="card">
+          <h2 style="font-size: 18px; margin-bottom: 24px;">📖 老板名单</h2>
+          
+          <!-- 搜索框 -->
+          <div style="margin-bottom: 20px; position: relative;">
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <input type="text" id="bossListSearchInput" class="form-input" placeholder="搜索老板名称" style="margin-bottom: 0;">
+              <button id="bossListSearchBtn" style="background: none; border: none; font-size: 24px; cursor: pointer; padding: 0 8px;">🐱</button>
+            </div>
+          </div>
+
+          <!-- 老板列表容器 -->
+          <div id="bossListContainer" style="display: flex; flex-direction: column; gap: 12px;">
+             <!-- 内容由 JS 动态填充 -->
+          </div>
+        </div>
+      `;
+
+      document.getElementById('pageContent').innerHTML = html;
+
+      // 渲染列表函数
+      const renderList = (filterText = '') => {
+        const container = document.getElementById('bossListContainer');
+
+        let filteredBosses = prepaidBosses;
+        if (filterText) {
+          filteredBosses = prepaidBosses.filter(name => name.includes(filterText));
+        }
+
+        if (filteredBosses.length === 0) {
+          container.innerHTML = '<p class="text-muted text-center">暂无相关老板记录</p>';
+          return;
+        }
+
+        container.innerHTML = filteredBosses.map(bossName => {
+          const balance = getBossBalanceSync(bossName);
+          // Calculate total consumption
+          const bossOrders = cachedData.orders.filter(o => o.bossName === bossName);
+          const totalConsumption = bossOrders.reduce((sum, o) => {
+            // 预存、正常、礼物、月卡都算在“店内总共消费”里
+            // 唯独 deduct_prepaid 不算（因为是用存款消费，已经在 prepaid 时算过了? 或者用户意思是只要花了钱就算？)
+            // 用户需求：预存+正常单+月卡（9.9）+礼物。（总共消费只算加起来的）
+            if (o.type === 'monthly') return sum + 9.9;
+            if (o.type === 'prepaid') return sum + (o.amount || 0); // 预存也算
+            if (['normal', 'gift'].includes(o.type)) return sum + (o.amount || 0);
+            // deduct_prepaid 被排除
+            return sum;
+          }, 0);
+
+          return `
+            <div onclick="setView('bossDetail', { name: '${bossName}' })" style="background: var(--bg-light); padding: 12px; border-radius: 8px; border-left: 3px solid var(--accent); cursor: pointer;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <span style="font-weight: bold; font-size: 16px;">老板：${bossName}</span>
+                <span style="color: var(--accent); font-weight: bold;">余额: ¥${balance.toFixed(0)}</span>
+              </div>
+              <div style="font-size: 12px; color: var(--text-muted);">
+                总共店内消费: <span style="color: var(--text);">¥${totalConsumption.toFixed(0)}</span>
+              </div>
+            </div>
+          `;
+        }).join('');
+      };
+
+      // 初始渲染
+      renderList();
+
+      // 绑定搜索事件
+      document.getElementById('bossListSearchBtn').addEventListener('click', () => {
+        const val = document.getElementById('bossListSearchInput').value.trim();
+        renderList(val);
+      });
+
+      // 支持回车搜索
+      document.getElementById('bossListSearchInput').addEventListener('keyup', (e) => {
+        if (e.key === 'Enter') {
+          const val = e.target.value.trim();
+          renderList(val);
+        }
+        // 也可以实时搜索，如果需要的话可以把下面注释打开
+        // const val = e.target.value.trim();
+        // renderList(val);
+      });
+    }
+
+    // 审核订单视图
+    function renderReviewOrders() {
+      const orders = cachedData.orders;
+      const pendingOrders = orders.filter(o => o.approved === false);
+      const receptionists = cachedData.receptionists;
+
+      let html = renderHeader() + `
+        <div class="card" style="padding-bottom: 80px;">
+          <h2 style="font-size: 18px; margin-bottom: 24px;">✅ 审核列表</h2>
+          ${pendingOrders.length === 0 ? `<p class="text-muted text-center" style="padding: 20px;">暂无待审核订单</p>` :
+          `<div>
+            <p class="text-muted mb-4">共 ${pendingOrders.length} 条待审核</p>
+            ${pendingOrders.map(order => {
+            const r = receptionists.find(rec => rec.id === order.receptionistId);
+
+            // 计算提成数据
+            let recComm = 0;
+            let stuComm = 0;
+            let divComm = 0;
+            let price = order.amount || 0;
+
+            if (order.type === 'monthly') {
+              // 月卡单特殊处理
+              price = 0;
+              stuComm = 9.9;
+            } else if (order.type === 'bonus') {
+              recComm = order.amount;
+            } else if (order.type === 'prepaid') {
+              recComm = calculateCommission(order, r || { commissionRate: 5 });
+              stuComm = calculateStudioIncomeForOrder(order);
+              divComm = 0;
+            } else {
+              recComm = calculateCommission(order, r || { commissionRate: 5 });
+              stuComm = calculateStudioIncomeForOrder(order);
+              divComm = (price - recComm - stuComm);
+            }
+            const typeName = getOrderTypeName(order.type);
+            const typeColor = getOrderTypeColor(order.type);
+
+            let displayHtml = '';
+
+            // 格式化输出
+            // 预存: 日期：xxx，老板x ，预存+100。当前余额xxx（右边对齐）
+            if (order.type === 'prepaid') {
+              displayHtml = `
+                 <div style="display: flex; justify-content: space-between; align-items: center;">
+                   <span>日期：${formatDate(order.date)}，老板 ${order.bossName}，预存 <span style="color: var(--success);">+${price}</span></span>
+                   <span style="font-weight: bold; color: var(--accent);">当前余额：${getBossBalanceSync(order.bossName).toFixed(0)}</span>
+                 </div>
+               `;
+            }
+            // 扣除: 日期：xxx，老板x，问题：xx，使用-99，当前余额xxx（右边对齐）
+            else if (order.type === 'deduct_prepaid') {
+              displayHtml = `
+                 <div style="display: flex; justify-content: space-between; align-items: center;">
+                   <span>日期：${formatDate(order.date)}，老板 ${order.bossName}，问题：${order.questionContent || '无'}，使用 <span style="color: var(--danger);">-${price}</span></span>
+                   <span style="font-weight: bold; color: var(--accent);">当前余额：${getBossBalanceSync(order.bossName).toFixed(0)}</span>
+                 </div>
+               `;
+            }
+            // 其他类型 (正常/礼物) - 虽然不涉及余额变动(通常是现结?) 但为了记录完整性还是显示，或者根据余额逻辑它们不影响余额？
+            // 假设 Boss Balance 只受 prepaid/deduct 影响。
+            // 但如果 "正常单" 也是记账？原逻辑里 getBossBalance 只算 prepaid - deduct。
+            // 所以这里其他单子 就按普通显示，或者不显示余额？
+            // 实际上 getBossBalance 里： normal/gift 不影响余额
+            else {
+              const typeName = getOrderTypeName(order.type);
+              const amountText = price;
+              displayHtml = `
+                 <div style="display: flex; justify-content: space-between; align-items: center;">
+                   <span>日期：${formatDate(order.date)}，老板 ${order.bossName}，${typeName} <span style="color: var(--text);">${amountText}</span></span>
+                   <span style="color: var(--text-muted); font-size: 12px;">(非余额消费)</span>
+                 </div>
+               `;
+            }
+
+            return `
+                <div style="background: var(--bg-light); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 20px; overflow: hidden;">
+                  <!-- Header: 接待信息与操作按钮 -->
+                  <div style="padding: 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span style="font-size: 18px;">${r ? r.emoji : '👤'}</span>
+                      <span style="font-weight: 600; font-size: 16px;">${r ? r.name : '未知'}</span>
+                      <span style="background: ${typeColor}20; color: ${typeColor}; font-size: 12px; padding: 2px 8px; border-radius: 4px;">${typeName}</span>
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                      <button onclick="rejectOrder(${order.id})" style="width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--danger); background: transparent; color: var(--danger); display: flex; align-items: center; justify-content: center; cursor: pointer;">✕</button>
+                      <button onclick="approveOrder(${order.id})" style="width: 36px; height: 36px; border-radius: 8px; background: var(--success); border: none; color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer;">✓</button>
+                    </div>
+                  </div>
+                  
+                  <!-- Body: 详细数据 -->
+                   <div style="padding: 20px;">
+                    <!-- 金额数据区域 -->
+                    ${order.type === 'monthly' ? `
+                      <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
+                        <span class="text-muted">单子类型：</span>
+                        <span style="color: var(--success); font-weight: 600;">月卡单</span>
+                      </div>
+                       <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
+                        <span class="text-muted">工作室收入：</span>
+                        <span style="color: var(--success); font-weight: 600;">¥9.90</span>
+                      </div>
+                    ` : `
+                       <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
+                        <span class="text-muted">单子价格：</span>
+                        <span style="color: var(--warning); font-weight: 600;">¥${price.toFixed(0)}</span>
+                      </div>
+                      <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
+                        <span class="text-muted">接待提成：</span>
+                        <span style="color: var(--primary-light); font-weight: 600;">¥${recComm.toFixed(2)}</span>
+                      </div>
+                      ${order.type !== 'bonus' ? `
+                      <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
+                        <span class="text-muted">占卜师提成：</span>
+                        <span style="color: var(--warning); font-weight: 600;">¥${divComm.toFixed(2)}</span>
+                      </div>
+                      <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
+                        <span class="text-muted">工作室提成：</span>
+                        <span style="color: var(--success); font-weight: 600;">¥${stuComm.toFixed(2)}</span>
+                      </div>` : ''}
+                    `}
+
+                    <!-- 分割线 -->
+                    <div style="height: 1px; background: var(--border); margin: 16px 0;"></div>
+
+                    <!-- 问题内容 -->
+                    <div>
+                      <span class="text-muted mb-2" style="display: block;">问题内容：</span>
+                      <p style="color: var(--text); line-height: 1.5; font-size: 15px;">${order.questionContent || '无'}</p>
+                    </div>
+                  </div>
+
+                  <!-- Footer: 元数据 -->
+                  <div style="padding: 12px 20px; background: rgba(0,0,0,0.2); display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted);">
+                    <span>老板：${order.bossName}</span>
+                    ${order.divinerId && order.divinerId !== '无' ? `<span>占卜师：${order.divinerId}</span>` : '<span></span>'}
+                    <span>${order.date}</span>
+                  </div>
+                </div>
+              `;
+          }).join('')}
+          </div>`
+        }
+        </div >
+        `;
+      document.getElementById('pageContent').innerHTML = html;
+    }
+
+    async function approveOrder(orderId) {
+      await DataStore.approveOrder(orderId);
+      await refreshData();
+      renderReviewOrders();
+    }
+
+    async function rejectOrder(orderId) {
+      if (confirm('确定驳回此订单？')) {
+        await DataStore.deleteOrder(orderId);
+        await refreshData();
+        renderReviewOrders();
+      }
+    }
+
+    // 每日收入视图
+    function renderDailyIncome() {
+      const orders = cachedData.orders;
+      const today = getToday();
+      const todayOrders = orders.filter(o => o.date === today && o.approved !== false);
+      const receptionists = cachedData.receptionists.filter(r => r.role === 'receptionist');
+      const totalIncome = calculateTotalStudioIncome(todayOrders);
+
+      let html = renderHeader() + `
+        <div class="card">
+          <h2 style="font-size: 18px; margin-bottom: 16px;">📊 今日收入明细</h2>
+          <div class="stats-section stats-section-green text-center mb-5">
+            <p class="text-muted mb-2">今日工作室收入</p>
+            <p style="font-size: 32px; font-weight: 700; color: var(--success);">¥${totalIncome.toFixed(2)}</p>
+            <p class="text-xs text-muted mt-2">正常/预存单25% | 礼物单10% | 月卡单9.9元/单</p>
+          </div>
+          <h3 style="font-size: 16px; margin-bottom: 12px;">接待统计</h3>
+          ${receptionists.map(r => {
+        const rOrders = todayOrders.filter(o => o.receptionistId === r.id);
+        if (r.isDeleted && rOrders.length === 0) return '';
+        const stats = {
+          total: rOrders.length,
+          monthly: rOrders.filter(o => o.type === 'monthly').length,
+          normal: rOrders.filter(o => o.type === 'normal').length,
+          prepaid: rOrders.filter(o => o.type === 'prepaid').length,
+          gift: rOrders.filter(o => o.type === 'gift').length,
+          bonus: rOrders.filter(o => o.type === 'bonus').length
+        };
+
+        // 计算详细数据以便渲染
+        const orderRows = rOrders.map(o => {
+          let recComm = 0;
+          let stuComm = 0;
+          let divComm = 0;
+          let price = o.amount || 0;
+
+          if (o.type === 'monthly') {
+            // 月卡单：目前逻辑是 price=0，studio=9.9
+            price = '月卡';
+            stuComm = 9.9;
+            // divComm = 0;
+          } else if (o.type === 'bonus') {
+            recComm = o.amount; // 全归接待
+          } else if (o.type === 'prepaid') {
+            // 预存单：不计算占卜师提成
+            recComm = calculateCommission(o, r);
+            stuComm = calculateStudioIncomeForOrder(o);
+            divComm = 0;
+          } else {
+            // 其他单
+            recComm = calculateCommission(o, r);
+            stuComm = calculateStudioIncomeForOrder(o);
+            divComm = (o.amount || 0) - recComm - stuComm;
+          }
+
+          return {
+            id: o.id,
+            type: getOrderTypeName(o.type),
+            boss: o.bossName.replace(/ #\d+$/, ''),
+            price: price === '月卡' ? '月卡' : '¥' + price.toFixed(2),
+            rec: '¥' + recComm.toFixed(2),
+            stu: '¥' + stuComm.toFixed(2),
+            div: '¥' + divComm.toFixed(2)
+          };
+        });
+
+        return `
+              <div class="list-item" onclick="toggleDailyDetail(${r.id})" style="cursor: pointer; flex-wrap: wrap;">
+                <div class="list-item-header" style="width: 100%;">
+                  <span class="list-item-avatar">${r.emoji}</span>
+                  <div class="flex-1">
+                    <span class="font-bold">${r.name}</span>
+                    ${r.isDeleted ? '<span class="text-xs" style="color: var(--danger);"> (已注销)</span>' : ''}
+                  </div>
+                  <span style="color: var(--accent);">共 ${stats.total} 单 <span style="font-size: 12px;">▼</span></span>
+                </div>
+                <div class="list-item-stats" style="width: 100%;">
+                  <span class="order-type-monthly">月卡 ${stats.monthly}</span>
+                  <span class="order-type-normal">正常 ${stats.normal}</span>
+                  <span class="order-type-prepaid">预存 ${stats.prepaid}</span>
+                  <span class="order-type-gift">礼物 ${stats.gift}</span>
+                  <span class="order-type-bonus">奖励 ${stats.bonus}</span>
+                </div>
+                
+                <!-- 详细订单列表 (默认隐藏) -->
+                <div id="dailyDetail-${r.id}" class="hidden" style="width: 100%; margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px;">
+                   <table style="width: 100%; font-size: 12px; text-align: left; border-collapse: collapse;">
+                     <thead>
+                       <tr style="color: var(--text-muted); border-bottom: 1px solid var(--border);">
+                         <th style="padding: 4px;">类型</th>
+                         <th style="padding: 4px;">老板</th>
+                         <th style="padding: 4px;">价格</th>
+                         <th style="padding: 4px;">接待</th>
+                         <th style="padding: 4px;">工作室</th>
+                         <th style="padding: 4px;">占卜师</th>
+                         <th style="padding: 4px;">操作</th>
+                       </tr>
+                     </thead>
+                     <tbody>
+                       ${orderRows.map(row => `
+                         <tr style="border-bottom: 1px solid var(--border);">
+                           <td style="padding: 6px 4px;">${row.type}</td>
+                           <td style="padding: 6px 4px;">${row.boss}</td>
+                           <td style="padding: 6px 4px;">${row.price}</td>
+                           <td style="padding: 6px 4px; color: var(--success);">${row.rec}</td>
+                           <td style="padding: 6px 4px; color: var(--accent);">${row.stu}</td>
+                           <td style="padding: 6px 4px; color: var(--primary);">${row.div}</td>
+                           <td style="padding: 6px 4px;">
+                             <button class="btn-text" style="color: var(--danger); font-size: 12px;" onclick="deleteOrder(${row.id}, event)">删除</button>
+                           </td>
+                         </tr>
+                       `).join('')}
+                       ${orderRows.length === 0 ? '<tr><td colspan="7" class="text-center text-muted" style="padding: 10px;">暂无订单</td></tr>' : ''}
+                     </tbody>
+                   </table>
+                </div>
+              </div>
+            `;
+      }).join('')
+        }
+        </div >
+        `;
+      document.getElementById('pageContent').innerHTML = html;
+    }
+
+    // 删除订单功能
+    async function deleteOrder(orderId, event) {
+      // 阻止事件冒泡，防止触发折叠/展开
+      if (event) {
+        event.stopPropagation();
+      }
+
+      if (!confirm('确定要删除这条订单吗？删除后将重新计算收入。')) {
+        return;
+      }
+
+      await DataStore.deleteOrder(orderId);
+      await refreshData();
+
+      // 根据当前视图刷新或跳转
+      if (currentView === 'monthlyFlowDetail' && currentDetailReceptionist && currentDetailReceptionist.id === 'all') {
+        setView('monthlyFlow'); // 工作室总览模式删除后返回列表
+      } else {
+        // 其他情况刷新当前视图
+        setView(currentView, selectedReceptionist || currentDetailReceptionist);
+      }
+    }
+
+    // 周结算清单视图
+    function renderWeeklySettlement() {
+      const orders = cachedData.orders;
+      const receptionists = cachedData.receptionists;
+      const weekStart = getWeekStart();
+      const weekOrders = orders.filter(o => new Date(o.date) >= weekStart && o.approved !== false);
+      const weeklyIncome = calculateTotalStudioIncome(weekOrders);
+      const settledIds = DataStore.getSettledIds();
+      const allReceptionists = receptionists.filter(r => r.role === 'receptionist');
+
+      let html = renderHeader() + `
+        <div class="card">
+          <h2 style="font-size: 18px; margin-bottom: 16px;">💵 周结算清单</h2>
+          <div class="stats-section stats-section-green text-center mb-5" style="cursor: pointer;">
+            <p class="text-muted mb-2">本周工作室收入</p>
+            <p style="font-size: 32px; font-weight: 700; color: var(--success);">¥${weeklyIncome.toFixed(2)}</p>
+          </div>
+          <h3 style="font-size: 16px; margin-bottom: 12px;">接待统计</h3>
+          ${allReceptionists.map(r => {
+        const rOrders = weekOrders.filter(o => o.receptionistId === r.id);
+        if (r.isDeleted && rOrders.length === 0) return '';
+        const stats = {
+          monthly: rOrders.filter(o => o.type === 'monthly').length,
+          normal: rOrders.filter(o => o.type === 'normal').length,
+          prepaid: rOrders.filter(o => o.type === 'prepaid').length,
+          gift: rOrders.filter(o => o.type === 'gift').length,
+          bonus: rOrders.filter(o => o.type === 'bonus').length
+        };
+        const taskComplete = stats.monthly >= 3;
+        const baseSalary = r.isIntern ? 20 : 40;
+        let orderCommission = 0;
+        rOrders.forEach(order => {
+          if (order.type !== 'bonus' && order.type !== 'monthly') {
+            const rate = r.commissionExpiry && new Date(r.commissionExpiry) > new Date(order.date) ? r.commissionRate : (order.type === 'normal' ? 5 : order.type === 'gift' ? 10 : 5);
+            orderCommission += order.amount * (rate / 100);
+          }
+        });
+        const bonusAmount = rOrders.filter(o => o.type === 'bonus').reduce((sum, o) => sum + o.amount, 0);
+        const weeklyPenalties = (r.penalties || []).filter(p => new Date(p.date) >= weekStart);
+        const penaltyAmount = weeklyPenalties.reduce((sum, p) => sum + p.amount, 0);
+        const totalSalary = taskComplete ? Math.max(0, baseSalary + orderCommission + bonusAmount - penaltyAmount) : 0;
+        const isSettled = settledIds.includes(r.id);
+
+        return `
+              <div class="list-item" style="${isSettled ? 'background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); opacity: 0.7;' : ''}">
+                <div class="list-item-header">
+                  <span class="list-item-avatar">${r.emoji}</span>
+                  <div class="flex-1">
+                    <span class="font-bold">${r.name}</span>
+                    ${r.isIntern ? '<span class="text-xs" style="color: var(--warning); margin-left: 8px;">实习</span>' : ''}
+                    ${r.isDeleted ? '<span class="text-xs" style="color: var(--danger); margin-left: 8px;">(已注销)</span>' : ''}
+                  </div>
+                  ${!r.isDeleted ? `
+                    <button class="settle-checkbox ${isSettled ? 'checked' : ''}" onclick="toggleSettlement('${r.id}')">
+                      ${isSettled ? '✓' : ''}
+                    </button>
+                  ` : ''}
+                </div>
+                <div class="list-item-stats mb-3">
+                  <span class="order-type-monthly">月卡 ${stats.monthly}</span>
+                  <span class="order-type-normal">正常 ${stats.normal}</span>
+                  <span class="order-type-prepaid">预存 ${stats.prepaid}</span>
+                  <span class="order-type-gift">礼物 ${stats.gift}</span>
+                  <span class="order-type-bonus">奖励 ${stats.bonus}</span>
+                </div>
+                <div class="salary-detail">
+                  <div class="salary-row"><span class="text-muted">底薪：</span><span>¥${baseSalary}</span></div>
+                  <div class="salary-row"><span class="text-muted">单子提成：</span><span style="color: var(--accent);">¥${orderCommission.toFixed(2)}</span></div>
+                  <div class="salary-row"><span class="text-muted">惩罚项：</span><span style="color: ${penaltyAmount > 0 ? 'var(--danger)' : 'var(--text)'};">${penaltyAmount > 0 ? '-' : ''}¥${penaltyAmount.toFixed(2)}</span></div>
+                  <div class="salary-row"><span class="text-muted">奖励：</span><span style="color: ${bonusAmount > 0 ? 'var(--bonus)' : 'var(--text)'};">¥${bonusAmount.toFixed(2)}</span></div>
+                  <div class="salary-total">
+                    <span>总共结算工资：</span>
+                    <span style="color: ${taskComplete ? 'var(--accent)' : 'var(--danger)'};">¥${totalSalary.toFixed(2)}${!taskComplete ? ' (未完成任务)' : ''}</span>
+                  </div>
+                </div>
+                ${isSettled ? '<p class="text-center text-xs mt-2" style="color: var(--success);">✓ 已结算</p>' : ''}
+              </div>
+            `;
+      }).join('')
+        }
+        </div >
+        `;
+      document.getElementById('pageContent').innerHTML = html;
+    }
+
+    async function toggleSettlement(rid) {
+      const settledIds = await DataStore.getSettledIds();
+      const idx = settledIds.indexOf(rid);
+
+      if (idx === -1) {
+        // 勾选：结算
+        await DataStore.setSettled(rid, true);
+        await DataStore.updateReceptionist(rid, {
+          backupSettlementDate: cachedData.receptionists.find(r => r.id === rid)?.lastSettlementDate,
+          lastSettlementDate: new Date().toISOString()
+        });
+        localStorage.removeItem(`nyx_promo_${rid}`);
+      } else {
+        // 取消勾选：撤销结算
+        const r = cachedData.receptionists.find(rec => rec.id === rid);
+        await DataStore.setSettled(rid, false);
+        await DataStore.updateReceptionist(rid, {
+          lastSettlementDate: r?.backupSettlementDate || null,
+          backupSettlementDate: null
+        });
+      }
+      await refreshData();
+      renderWeeklySettlement();
+    }
+
+    // 提交奖金视图
+    function renderSubmitBonus() {
+      const receptionists = cachedData.receptionists.filter(r => r.role === 'receptionist' && !r.isDeleted);
+      let html = renderHeader() + `
+        <div class="card">
+          <h2 style="font-size: 18px; margin-bottom: 16px;">🎁 提交奖金</h2>
+          <div id="bonusSuccess" class="success-message hidden">✨ 奖金已发放！</div>
+          <form id="bonusForm">
+            <div class="form-group">
+              <label class="form-label">选择接待</label>
+              <select id="bonusReceptionist" class="form-select" required>
+                <option value="">请选择接待</option>
+                ${receptionists.map(r => `<option value="${r.id}">${r.emoji} ${r.name}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">奖金类型</label>
+              <select id="bonusType" class="form-select">
+                <option value="tea">🧋 奶茶</option>
+                <option value="psychology">💚 心理委员补助</option>
+                <option value="recruitment">🌟 招新提成</option>
+                <option value="weeklyReward">🏆 周任务奖励</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">金额</label>
+              <input type="number" id="bonusAmount" class="form-input" placeholder="请输入金额" required>
+            </div>
+            <button type="submit" class="btn btn-accent btn-full">确认发放</button>
+          </form>
+        </div >
+        `;
+      document.getElementById('pageContent').innerHTML = html;
+      document.getElementById('bonusForm').addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const rid = document.getElementById('bonusReceptionist').value;
+        const amount = parseFloat(document.getElementById('bonusAmount').value);
+        if (!rid || !amount) return;
+
+        await DataStore.saveOrder({
+          receptionistId: rid,
+          type: 'bonus',
+          bonusType: document.getElementById('bonusType').value,
+          amount,
+          date: getToday(),
+          bossName: '系统奖励',
+          approved: true
+        });
+
+        document.getElementById('bonusSuccess').classList.remove('hidden');
+        setTimeout(async () => {
+          const successMsg = document.getElementById('bonusSuccess');
+          if (successMsg) successMsg.classList.add('hidden');
+
+          const form = document.getElementById('bonusForm');
+          if (form) form.reset();
+
+          await refreshData();
+        }, 2000);
+      });
+    }
+
+    // 周任务完成清单
+    function renderTaskManagement() {
+      const orders = cachedData.orders;
+      const receptionists = cachedData.receptionists.filter(r => r.role === 'receptionist' && !r.isDeleted);
+      const weekStart = getWeekStart();
+
+      const getWeeklyMonthlyCount = (rid) => orders.filter(o => o.receptionistId === rid && o.type === 'monthly' && new Date(o.date) >= weekStart && o.approved !== false).length;
+      const getWeeklyFlow = (rid) => orders.filter(o => o.receptionistId === rid && (o.type === 'normal' || o.type === 'prepaid') && new Date(o.date) >= weekStart && o.approved !== false).reduce((sum, o) => sum + (o.amount || 0), 0);
+
+      const redZone = receptionists.filter(r => getWeeklyMonthlyCount(r.id) < 3);
+      const greenZone = receptionists.filter(r => getWeeklyMonthlyCount(r.id) >= 3);
+      const yellowZone = receptionists.filter(r => getWeeklyMonthlyCount(r.id) >= 3 && (getWeeklyMonthlyCount(r.id) >= 9 || getWeeklyFlow(r.id) >= 666));
+
+      let html = renderHeader() + `
+        <div class="card">
+          <h2 style="font-size: 18px; margin-bottom: 16px;">📋 周任务完成清单</h2>
+          <div class="stats-section stats-section-red mb-4">
+            <h3 class="stats-section-title" style="color: var(--danger);">🔴 未完成 周任务月卡x3</h3>
+            ${redZone.length === 0 ? '<p class="text-muted text-sm">暂无</p>' : redZone.map(r => `
+              <div class="flex justify-between items-center" style="padding: 8px 0;">
+                <span>${r.emoji} ${r.name}</span>
+                <span style="color: var(--danger);">${getWeeklyMonthlyCount(r.id)}/3 单</span>
+              </div>
+            `).join('')}
+          </div>
+          <div class="stats-section stats-section-green mb-4">
+            <h3 class="stats-section-title" style="color: var(--success);">🟢 已完成 周任务月卡x3</h3>
+            ${greenZone.length === 0 ? '<p class="text-muted text-sm">暂无</p>' : greenZone.map(r => `
+              <div class="flex justify-between items-center" style="padding: 8px 0;">
+                <span>${r.emoji} ${r.name}</span>
+                <span style="color: var(--success);">${getWeeklyMonthlyCount(r.id)} 单</span>
+              </div>
+            `).join('')}
+          </div>
+          <div class="stats-section stats-section-yellow">
+            <h3 class="stats-section-title" style="color: var(--warning);">🟡 完成额外目标（月卡≥9 或 周流水≥666）</h3>
+            ${yellowZone.length === 0 ? '<p class="text-muted text-sm">暂无</p>' : yellowZone.map(r => `
+              <div class="flex justify-between items-center" style="padding: 8px 0;">
+                <span>${r.emoji} ${r.name}</span>
+                <div class="flex gap-2 items-center">
+                  <span class="order-type-monthly text-xs">${getWeeklyMonthlyCount(r.id)}单</span>
+                  <span class="order-type-bonus text-xs">¥${getWeeklyFlow(r.id).toFixed(0)}</span>
+                  <span>🎉</span>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+          
+          <div style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 20px;">
+             <p class="text-sm text-muted mb-3">其他管理</p>
+             <div class="flex gap-3">
+               <button class="btn btn-secondary flex-1" onclick="setView('submitBonus')">🎁 提交奖金</button>
+               <button class="btn btn-secondary flex-1" onclick="setView('modifyCommission')">💰 修改提成</button>
+             </div>
+          </div>
+        </div >
+        `;
+      document.getElementById('pageContent').innerHTML = html;
+    }
+
+    // 修改提成视图
+    function renderModifyCommission() {
+      const receptionists = cachedData.receptionists.filter(r => r.role === 'receptionist' && !r.isDeleted);
+      let html = renderHeader() + `
+        <div class="card">
+          <h2 style="font-size: 18px; margin-bottom: 16px;">💰 修改提成</h2>
+          <div id="commissionSuccess" class="success-message hidden">✨ 提成已修改，7天后恢复默认</div>
+          ${(function () {
+          const withTempCommission = receptionists.filter(r => r.commissionExpiry && new Date(r.commissionExpiry) > new Date());
+          if (withTempCommission.length > 0) {
+            return `
+                <div class="alert-banner alert-banner-accent mb-4">
+                  <p style="margin-bottom: 8px;">💰 临时提成中的接待：</p>
+                  ${withTempCommission.map(r => {
+              const d = new Date(r.commissionExpiry);
+              return `<p class="text-sm">${r.emoji} ${r.name}（提成${r.commissionRate}%，${d.getMonth() + 1}月${d.getDate()}日结束）</p>`;
+            }).join('')}
+                </div>
+              `;
+          }
+          return '';
+        })()
+        }
+      <form id="commissionForm">
+        <div class="form-group">
+          <label class="form-label">选择接待</label>
+          <select id="commissionReceptionist" class="form-select" required>
+            <option value="">请选择接待</option>
+            ${receptionists.map(r => `<option value="${r.id}">${r.emoji} ${r.name}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">新提成比例（%）</label>
+          <input type="number" id="newRate" class="form-input" placeholder="请输入新提成比例" required>
+        </div>
+        <p class="text-sm text-muted mb-4">⚠️ 修改后有效期为7天，之后自动恢复默认比例</p>
+        <button type="submit" class="btn btn-primary btn-full">确认修改</button>
+      </form>
+        </div >
+        `;
+      document.getElementById('pageContent').innerHTML = html;
+      document.getElementById('commissionForm').addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const rid = document.getElementById('commissionReceptionist').value;
+        const newRate = parseFloat(document.getElementById('newRate').value);
+        if (!rid || !newRate) return;
+        const expiryDate = new Date();
+        expiryDate.setDate(expiryDate.getDate() + 7);
+
+        await DataStore.updateReceptionist(rid, {
+          commissionRate: newRate,
+          commissionExpiry: expiryDate.toISOString()
+        });
+
+        document.getElementById('commissionSuccess').classList.remove('hidden');
+        setTimeout(async () => {
+          const successMsg = document.getElementById('commissionSuccess');
+          if (successMsg) successMsg.classList.add('hidden');
+
+          const form = document.getElementById('commissionForm');
+          if (form) form.reset();
+
+          await refreshData();
+        }, 2000);
+      });
+    }
+
+    // 当月流水视图 - 状态变量
+    let currentDetailDate = new Date();
+    let selectedDetailDate = null;
+    let currentDetailReceptionist = null;
+
+    function renderMonthlyFlow() {
+      const receptionists = cachedData.receptionists.filter(r => r.role === 'receptionist');
+
+      // Calculate total studio income for the month (as header)
+      const orders = cachedData.orders;
+      const monthStart = getMonthStart();
+      const monthOrders = orders.filter(o => o.approved !== false && new Date(o.createdAt) >= monthStart);
+      const totalStudioIncome = calculateTotalStudioIncome(monthOrders);
+
+      const getStats = (rid) => {
+        const rOrders = monthOrders.filter(o => o.receptionistId === rid);
+        const totalAmount = rOrders.reduce((sum, o) => {
+          if (o.type === 'monthly') return sum + 9.9;
+          if (o.type === 'bonus') return sum;
+          return sum + (o.amount || 0);
+        }, 0);
+        return {
+          totalAmount,
+          monthly: rOrders.filter(o => o.type === 'monthly').length,
+          normal: rOrders.filter(o => o.type === 'normal').length,
+          prepaid: rOrders.filter(o => o.type === 'prepaid').length,
+          gift: rOrders.filter(o => o.type === 'gift').length,
+          bonus: rOrders.filter(o => o.type === 'bonus').length,
+          total: rOrders.length
+        };
+      };
+
+      // Sort receptionists by total flow
+      const sorted = [...receptionists].sort((a, b) => getStats(b.id).totalAmount - getStats(a.id).totalAmount);
+
+      let html = renderHeader() + `
+        <div class="card">
+          <h2 style="font-size: 18px; margin-bottom: 16px;">📈 当月接待累计流水</h2>
+          <div class="stats-section" onclick="setView('monthlyFlowDetail', { id: 'all', name: '工作室总览' })" style="background: linear-gradient(135deg, rgba(255,215,0,0.15), rgba(255,215,0,0.08)); border: 1px solid rgba(255,215,0,0.25); text-align: center; margin-bottom: 20px; cursor: pointer;">
+             <p class="text-muted mb-2">本月工作室收入</p>
+             <p style="font-size: 32px; font-weight: 700; color: var(--accent);">¥${totalStudioIncome.toFixed(2)}</p>
+             <p class="text-xs text-muted mt-2">正常/预存单25% | 礼物单10% | 月卡单9.9元/单</p>
+          </div>
+          
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            ${sorted.map(r => {
+        const stats = getStats(r.id);
+        return `
+                 <div onclick="setView('monthlyFlowDetail', { id: ${r.id}, name: '${r.name}' })" style="background: var(--bg-light); padding: 16px; border-radius: 12px; border: 1px solid var(--border); cursor: pointer;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                       <span style="font-weight: bold; font-size: 16px;">${r.emoji} ${r.name} <span style="font-size: 12px; color: var(--text-muted); margin-left: 4px;">点击查看 ▶</span></span>
+                    </div>
+                    <div style="margin-bottom: 12px;">
+                   <p class="text-muted" style="font-size: 12px; margin-bottom: 2px;">总流水：</p>
+                   <p style="font-size: 20px; font-weight: bold; color: var(--text);">¥${stats.totalAmount.toFixed(2)}</p>
+                </div>
+                <div style="font-size: 13px; display: flex; gap: 8px; flex-wrap: wrap;">
+                   <span style="color: #10b981;">月卡 ${stats.monthly}</span>
+                   <span style="color: #3b82f6;">正常 ${stats.normal}</span>
+                   <span style="color: #f59e0b;">预存 ${stats.prepaid}</span>
+                   <span style="color: #ec4899;">礼物 ${stats.gift}</span>
+                   <span style="color: #ffd700;">奖励 ${stats.bonus}</span>
+                </div>
+             </div>
+           `;
+      }).join('')}
+          </div>
+        </div>
+      `;
+      document.getElementById('pageContent').innerHTML = html;
+    }
+
+    // 月度流水详情视图 (日历版)
+    function renderMonthlyFlowDetail(data) {
+      if (data) {
+        currentDetailReceptionist = data;
+        currentDetailDate = new Date();
+        selectedDetailDate = null;
+      }
+
+      const r = currentDetailReceptionist;
+      if (!r) { setView('monthlyFlow'); return; }
+
+      const year = currentDetailDate.getFullYear();
+      const month = currentDetailDate.getMonth();
+      const daysInMonth = getDaysInMonth(year, month);
+      const firstDay = new Date(year, month, 1).getDay();
+
+      let orders;
+      if (r.id === 'all') {
+        orders = cachedData.orders.filter(o => o.approved !== false);
+      } else {
+        orders = cachedData.orders.filter(o => o.receptionistId === r.id && o.approved !== false);
+      }
+
+      let selectedOrders = selectedDetailDate ? getOrdersForDate(selectedDetailDate, orders, year, month) : [];
+
+      // If showing all, sort by receptionist to keep them together
+      if (r.id === 'all') {
+        selectedOrders.sort((a, b) => {
+          if (a.receptionistId !== b.receptionistId) return a.receptionistId - b.receptionistId;
+          return 0;
+        });
+      }
+
+      let html = renderHeader() + `
+          <div class="card mb-4">
+             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
+                <button class="btn-text" onclick="setView('monthlyFlow')">← 返回流水列表</button>
+             </div>
+             <h2 style="font-size: 18px; margin-bottom: 16px;">📅 ${r.name} 的订单记录</h2>
+             
+             <!-- Calendar Nav -->
+             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                <button class="btn-icon" onclick="prevDetailMonth()" style="background: var(--bg-light); border: 1px solid var(--border); width: 32px; height: 32px; border-radius: 8px; color: var(--text);">◀</button>
+                <span style="font-size: 16px; font-weight: bold;">${year}年${month + 1}月</span>
+                <button class="btn-icon" onclick="nextDetailMonth()" style="background: var(--bg-light); border: 1px solid var(--border); width: 32px; height: 32px; border-radius: 8px; color: var(--text);">▶</button>
+             </div>
+
+             <!-- Weekdays -->
+             <div style="display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">
+                ${['日', '一', '二', '三', '四', '五', '六'].map(d => `<div>${d}</div>`).join('')}
+             </div>
+
+             <!-- Days -->
+             <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px;">
+                ${Array.from({ length: firstDay }).map(() => '<div></div>').join('')}
+                ${(() => {
+          // Calculate max studio income for the month (only for Studio Overview)
+          let dailyIncomes = [];
+          let maxIncome = 0;
+          if (r.id === 'all') {
+            dailyIncomes = Array.from({ length: daysInMonth }).map((_, i) => {
+              const d = i + 1;
+              const dOrders = getOrdersForDate(d, orders, year, month);
+              return calculateTotalStudioIncome(dOrders);
+            });
+            maxIncome = Math.max(...dailyIncomes);
+          }
+
+          return Array.from({ length: daysInMonth }).map((_, i) => {
+            const day = i + 1;
+            const dayOrders = getOrdersForDate(day, orders, year, month);
+            const isToday = formatDate(new Date()) === `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            const isSelected = selectedDetailDate === day;
+            const hasOrders = dayOrders.length > 0;
+
+            const isMaxIncomeDay = r.id === 'all' && maxIncome > 0 && dailyIncomes[i] === maxIncome;
+
+            const orderTypes = [...new Set(dayOrders.map(o => o.type))];
+
+            return `
+                      <div onclick="selectDetailDate(${day})" style="
+                          aspect-ratio: 1; 
+                          display: flex; 
+                          flex-direction: column; 
+                          align-items: center; 
+                          justify-content: center; 
+                          border-radius: 8px; 
+                          cursor: pointer; 
+                          background: ${isSelected ? 'var(--primary)' : 'transparent'};
+                          border: ${isToday && !isSelected ? '1px solid var(--accent)' : 'none'};
+                          color: ${isSelected ? '#fff' : 'var(--text)'};
+                          position: relative;
+                      ">
+                         <span style="font-size: 14px;">${day}</span>
+                         ${isMaxIncomeDay ? '<span style="position: absolute; top: -4px; right: -4px; font-size: 10px;">❤️</span>' : ''}
+                         ${hasOrders ? `
+                           <div style="display: flex; gap: 2px; margin-top: 2px;">
+                              ${orderTypes.map(t => `<div style="width: 4px; height: 4px; border-radius: 50%; background: ${getOrderTypeColor(t)};"></div>`).join('')}
+                           </div>
+                         ` : ''}
+                      </div>
+                    `;
+          }).join('');
+        })()}
+             </div>
+          </div>
+          
+          <!-- Selected Date Details -->
+          ${selectedDetailDate ? `
+             <div class="card">
+                <h3 style="font-size: 16px; margin-bottom: 16px;">${month + 1}月${selectedDetailDate}日订单</h3>
+                ${selectedOrders.length === 0 ? '<p class="text-muted text-center">该日无订单</p>' :
+            selectedOrders.map(o => {
+              const rec = cachedData.receptionists.find(x => x.id === o.receptionistId);
+              const recName = rec ? rec.name : '未知';
+              const typeName = getOrderTypeName(o.type);
+              const typeColor = getOrderTypeColor(o.type);
+
+              let recComm = 0, stuComm = 0, divComm = 0;
+              if (o.type === 'monthly') {
+                stuComm = 9.9;
+              } else if (o.type === 'bonus') {
+                recComm = o.amount;
+              } else if (o.type === 'prepaid') {
+                recComm = calculateCommission(o, rec || {});
+                stuComm = calculateStudioIncomeForOrder(o);
+              } else if (['normal', 'gift'].includes(o.type)) {
+                recComm = calculateCommission(o, rec || {});
+                stuComm = calculateStudioIncomeForOrder(o);
+                divComm = (o.amount || 0) - recComm - stuComm;
+              } else if (o.type === 'deduct_prepaid') {
+                divComm = o.amount;
+              }
+
+              return `
+                       <div style="border-left: 4px solid ${typeColor}; background: var(--bg-light); border-radius: 8px; overflow: hidden; margin-bottom: 12px;">
+                          <div style="padding: 8px 12px; background: ${typeColor}15; display: flex; justify-content: space-between; align-items: center;">
+                             <span style="font-weight: bold; color: ${typeColor};">${typeName}</span>
+                          </div>
+                           <div style="padding: 12px; color: ${typeColor};">
+                              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                 <span style="font-size: 14px; color: var(--text-muted);">
+                                    ${r.id === 'all' ? `接待：<span style="color: var(--text);">${recName}</span> | ` : ''}
+                                    老板：<span style="color: var(--text);">${o.bossName.replace(/ #\d+$/, '')}</span> | 
+                                    占卜师：<span style="color: var(--text);">${o.divinerId || '无'}</span>
+                                 </span>
+                                 <button class="btn-text" style="color: var(--danger); font-size: 12px;" onclick="deleteOrder(${o.id}, event)">✖ 删除</button>
+                              </div>
+                              
+                              ${o.type !== 'monthly' ? `<div style="margin-bottom: 4px; font-weight: bold;">价格：¥${o.amount}</div>` : ''}
+                              
+                              ${o.type !== 'monthly' && o.type !== 'bonus' ? `
+                                 <div style="font-size: 12px; color: var(--text-muted); display: flex; flex-direction: column; gap: 4px; align-items: flex-start;">
+                                    <div>接待提成：¥${recComm.toFixed(2)}</div>
+                                    <div>占卜师提成：¥${divComm.toFixed(2)}</div>
+                                    <div>工作室提成：¥${stuComm.toFixed(2)}</div>
+                                 </div>
+                              ` : ''}
+                           </div>
+                        </div>
+                      `;
+            }).join('')
+          }
+             </div>
+          ` : ''}
+        `;
+      document.getElementById('pageContent').innerHTML = html;
+    }
+
+    function getOrdersForDate(day, orders, year, month) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      return orders.filter(o => o.date === dateStr);
+    }
+
+    function prevDetailMonth() {
+      currentDetailDate = new Date(currentDetailDate.getFullYear(), currentDetailDate.getMonth() - 1, 1);
+      selectedDetailDate = null;
+      renderMonthlyFlowDetail();
+    }
+
+    function nextDetailMonth() {
+      currentDetailDate = new Date(currentDetailDate.getFullYear(), currentDetailDate.getMonth() + 1, 1);
+      selectedDetailDate = null;
+      renderMonthlyFlowDetail();
+    }
+
+    function selectDetailDate(day) {
+      selectedDetailDate = (selectedDetailDate === day) ? null : day;
+      renderMonthlyFlowDetail();
+    }
+
+    // 管理接待视图
+    function renderManageReceptionists() {
+      const receptionists = cachedData.receptionists.filter(r => r.role === 'receptionist' && !r.isDeleted);
+      let html = renderHeader() + `
+      <div class="card" >
+          <h2 style="font-size: 18px; margin-bottom: 24px;">🔍 查找信息与补录</h2>
+          
+          <div style="margin-bottom: 20px;">
+             <button class="btn btn-secondary btn-full" onclick="setView('bossList')">📖 查看老板名单</button>
+          </div>
+
+          <!--搜索单子信息 -->
+          <div style="margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px dashed var(--border);">
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <input type="text" id="manageOrderSearchInput" class="form-input" placeholder="搜索单子关键词 (如: 老板名/问题/占卜师)" style="margin-bottom: 0;">
+              <button id="manageOrderSearchBtn" style="background: none; border: none; font-size: 24px; cursor: pointer; padding: 0 8px;">🐱</button>
+            </div>
+            <div id="manageOrderSearchResult" class="hidden" style="margin-top: 12px; background: var(--bg-light); padding: 12px; border-radius: 8px;">
+              <!-- 搜索结果 -->
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" style="font-weight: bold; color: var(--text);">账号订单管理-选择接待</label>
+            <select id="manageReceptionist" class="form-select" onchange="onManageReceptionistChange()">
+              <option value="">请选择接待</option>
+              ${receptionists.map(r => `<option value="${r.id}">${r.emoji} ${r.name}</option>`).join('')}
+            </select>
+          </div>
+          <div id="manageActions" class="hidden flex flex-col gap-3 mt-4">
+            <button class="btn btn-primary btn-full" onclick="showAddOrderModal()">📝 补录订单</button>
+            <button class="btn btn-danger btn-full" onclick="showDeleteModal()">🗑️ 删除账号</button>
+          </div>
+        </div >
+        <div id="addOrderModal" class="modal-overlay hidden">
+          <div class="card modal-content">
+            <h3 style="margin-bottom: 16px;">📝 补录订单</h3>
+            <form id="addOrderForm">
+              <div class="form-group"><label class="form-label">日期</label><input type="date" id="addOrderDate" class="form-input" value="${getToday()}" required></div>
+              <div class="form-group"><label class="form-label">老板名称</label><input type="text" id="addOrderBoss" class="form-input" required></div>
+              <div class="form-group"><label class="form-label">单子类型</label>
+                <select id="addOrderType" class="form-select" onchange="onAddOrderTypeChange()">
+                  <option value="normal">正常单</option><option value="gift">礼物单</option>
+                  <option value="monthly">月卡单</option><option value="prepaid">预存单</option>
+                </select>
+              </div>
+              <div class="form-group" id="addOrderAmountGroup"><label class="form-label">金额</label><input type="number" id="addOrderAmount" class="form-input"></div>
+              <div class="form-group hidden" id="addOrderCountGroup"><label class="form-label">数量（个）</label><input type="number" id="addOrderCount" class="form-input" min="1" value="1"></div>
+              <div class="flex gap-3">
+                <button type="button" class="btn btn-secondary flex-1" onclick="closeAddOrderModal()">取消</button>
+                <button type="submit" class="btn btn-primary flex-1">确认补录</button>
+              </div>
+            </form>
+          </div>
+        </div>
+        <div id="deleteModal" class="modal-overlay hidden">
+          <div class="card modal-content">
+            <h3 style="margin-bottom: 16px; color: var(--danger);">⚠️ 删除账号</h3>
+            <p class="text-muted mb-5">是否保留该接待的订单记录？</p>
+            <div class="flex flex-col gap-3">
+              <button class="btn btn-secondary btn-full" onclick="deleteAccount(true)">保留订单，仅删除账号</button>
+              <button class="btn btn-danger btn-full" onclick="deleteAccount(false)">全部删除</button>
+              <button class="btn btn-secondary btn-full" onclick="closeDeleteModal()">取消</button>
+            </div>
+          </div>
+        </div>
+    `;
+      document.getElementById('pageContent').innerHTML = html;
+      document.getElementById('manageOrderSearchBtn').addEventListener('click', searchManageOrders);
+      document.getElementById('manageOrderSearchInput').addEventListener('keyup', (e) => {
+        if (e.key === 'Enter') searchManageOrders();
+      });
+
+      function searchManageOrders() {
+        const input = document.getElementById('manageOrderSearchInput').value.trim();
+        const container = document.getElementById('manageOrderSearchResult');
+
+        if (!input) {
+          container.classList.add('hidden');
+          return;
+        }
+
+        const orders = cachedData.orders;
+
+        // 1. 检查是否匹配老板名字
+        const allBossNames = [...new Set(orders.map(o => o.bossName))];
+        if (allBossNames.includes(input)) {
+          const bossOrders = orders.filter(o => o.bossName === input);
+          const normalCount = bossOrders.filter(o => o.type === 'normal').length;
+          const monthlyCount = bossOrders.filter(o => o.type === 'monthly').length;
+          const balance = getBossBalanceSync(input);
+
+          const totalConsumption = bossOrders
+            .reduce((sum, o) => {
+              if (o.type === 'monthly') return sum + 9.9;
+              if (['normal', 'gift', 'deduct_prepaid'].includes(o.type)) return sum + (o.amount || 0);
+              return sum;
+            }, 0);
+
+          container.innerHTML = `
+      <div onclick = "setView('bossDetail', { name: '${input}' })" style = "background: transparent; border: 1px solid var(--border); padding: 16px; border-radius: 12px; cursor: pointer; transition: transform 0.2s;" >
+               <div style="margin-bottom: 12px;">
+                 <h3 style="font-size: 18px; font-weight: bold; margin-bottom: 8px; color: var(--text);">老板：${input}</h3>
+                 <p style="font-size: 14px; color: var(--text-muted);">共消费：正常单 ${normalCount} 单，月卡 ${monthlyCount} 单</p>
+                 <p style="font-size: 14px; color: var(--text-muted);">余额：<span style="font-weight: bold; color: var(--accent); font-size: 16px;">¥${balance.toFixed(0)}</span></p>
+                 <p style="font-size: 14px; color: var(--text-muted);">累计消费：¥${totalConsumption.toFixed(0)} <span style="font-size: 12px; opacity: 0.8;">（正常单，月卡，预存，礼物）</span></p>
+               </div>
+               <div style="text-align: right;">
+                  <span class="btn btn-sm btn-primary" style="background: var(--primary); color: #fff; padding: 6px 16px; border-radius: 20px; font-size: 12px;">查看详细记录 ></span>
+               </div>
+             </div >
+      `;
+          container.classList.remove('hidden');
+          return;
+        }
+
+        // 2. 检查是否匹配接待名字
+        const receptionists = cachedData.receptionists;
+        const matchedReceptionist = receptionists.find(r => r.name === input);
+        if (matchedReceptionist) {
+          const rOrders = orders.filter(o => o.receptionistId === matchedReceptionist.id);
+          const totalAmount = rOrders.reduce((sum, o) => {
+            if (o.type === 'monthly') return sum + 9.9;
+            if (['normal', 'gift', 'deduct_prepaid', 'prepaid'].includes(o.type)) return sum + (o.amount || 0);
+            return sum;
+          }, 0);
+
+          container.innerHTML = `
+      <div onclick = "setView('receptionistDetail', { id: ${matchedReceptionist.id} })" style = "background: transparent; border: 1px solid var(--border); padding: 16px; border-radius: 12px; cursor: pointer; transition: transform 0.2s;" >
+               <div style="margin-bottom: 12px;">
+                 <h3 style="font-size: 18px; font-weight: bold; margin-bottom: 8px; color: var(--text);">👤 接待：${matchedReceptionist.name}</h3>
+                 <p style="font-size: 14px; color: var(--text-muted);">累计接单：${rOrders.length} 单</p>
+                 <p style="font-size: 14px; color: var(--text-muted);">累计流水：<span style="font-weight: bold; color: var(--accent); font-size: 16px;">¥${totalAmount.toFixed(0)}</span></p>
+               </div>
+               <div style="text-align: right;">
+                  <span class="btn btn-sm btn-primary" style="background: var(--primary); color: #fff; padding: 6px 16px; border-radius: 20px; font-size: 12px;">查看接待记录 ></span>
+               </div>
+             </div >
+      `;
+          container.classList.remove('hidden');
+          return;
+        }
+
+        // 3. 检查是否匹配占卜师名字
+        const allDiviners = [...new Set(orders.map(o => o.divinerId).filter(d => d && d !== '无'))];
+        if (allDiviners.includes(input)) {
+          const dOrders = orders.filter(o => o.divinerId === input);
+
+          // 计算总收入：(总流水 x 提成) 的逻辑其实是 扣除接待和工作室后的剩余
+          const receptionists = cachedData.receptionists;
+          const totalIncome = dOrders.reduce((sum, o) => {
+            if (o.type === 'monthly' || o.type === 'prepaid' || o.type === 'bonus') return sum;
+
+            const amount = o.amount || 0;
+            if (o.type === 'deduct_prepaid') {
+              // 扣除预存：工作室和接待对于 deduct_prepaid 提成/收入为 0，所以占卜师拿全部?
+              // 逻辑参考 Audit View: deduct_prepaid 不在 if/else if 中，进入 else
+              // 但 calculateCommission('deduct_prepaid') 返回 0
+              // calculateStudioIncomeForOrder('deduct_prepaid') 返回 0
+              // 所以 divComm = price - 0 - 0 = price
+              return sum + amount;
+            }
+
+            // 正常单/礼物单
+            const rec = receptionists.find(r => r.id === o.receptionistId) || { commissionRate: 5 };
+            const recComm = calculateCommission(o, rec);
+            const stuComm = calculateStudioIncomeForOrder(o);
+            const divComm = amount - recComm - stuComm;
+            return sum + divComm;
+          }, 0);
+
+          container.innerHTML = `
+      <div onclick = "setView('divinerDetail', { name: '${input}' })" style = "background: transparent; border: 1px solid var(--border); padding: 16px; border-radius: 12px; cursor: pointer; transition: transform 0.2s;" >
+               <div style="margin-bottom: 12px;">
+                 <h3 style="font-size: 18px; font-weight: bold; margin-bottom: 8px; color: var(--text);">🔮 占卜师：${input}</h3>
+                 <p style="font-size: 14px; color: var(--text-muted);">累计占卜：${dOrders.length} 单</p>
+                 <p style="font-size: 14px; color: var(--text-muted);">总共收入：<span style="font-weight: bold; color: var(--accent); font-size: 16px;">¥${totalIncome.toFixed(2)}</span></p>
+               </div>
+               <div style="text-align: right;">
+                  <span class="btn btn-sm btn-primary" style="background: var(--primary); color: #fff; padding: 6px 16px; border-radius: 20px; font-size: 12px;">查看占卜记录 ></span>
+               </div>
+             </div >
+      `;
+          container.classList.remove('hidden');
+          return;
+        }
+
+        // 4. 否则执行原来的模糊搜索
+        const inputLower = input.toLowerCase();
+
+        const matches = orders.filter(o => {
+          const typeName = getOrderTypeName(o.type);
+          const content = `${o.bossName} ${typeName} ${o.divinerId || ''} ${o.questionContent || ''} ${o.amount} `.toLowerCase();
+          return content.includes(inputLower);
+        });
+
+        if (matches.length === 0) {
+          container.innerHTML = '<p class="text-muted text-center text-sm">未找到相关订单</p>';
+        } else {
+          // 按时间倒序
+          matches.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+          container.innerHTML = matches.slice(0, 10).map(o => {
+            const r = receptionists.find(rec => rec.id === o.receptionistId);
+            const rName = r ? r.name : '未知';
+            const typeColor = getOrderTypeColor(o.type);
+            const typeName = getOrderTypeName(o.type);
+
+            return `
+      <div style = "background: var(--bg-card); border: 1px solid var(--border); padding: 8px; border-radius: 6px; margin-bottom: 8px;" >
+                  <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
+                     <span style="font-weight: bold;">老板：${o.bossName}</span>
+                     <span style="color: ${typeColor}; background: ${typeColor}15; padding: 1px 4px; border-radius: 4px;">${typeName}</span>
+                  </div>
+                  <div style="font-size: 12px; color: var(--text-muted); display: flex; flex-direction: column; gap: 2px;">
+                     <p>日期: ${formatDate(o.date)} | 接待: ${rName}</p>
+                     ${o.type !== 'monthly' ? `<p>金额: ¥${o.amount}</p>` : ''}
+                     ${o.divinerId && o.divinerId !== '无' ? `<p>占卜师: ${o.divinerId}</p>` : ''}
+                     ${o.questionContent ? `<p>问题: ${o.questionContent}</p>` : ''}
+                  </div>
+                </div >
+      `;
+          }).join('');
+
+          if (matches.length > 10) {
+            container.innerHTML += `< p class="text-center text-xs text-muted mt-2" > 仅显示最近 10 条匹配结果</p > `;
+          }
+        }
+
+        container.classList.remove('hidden');
+      }
+
+      document.getElementById('addOrderForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+        const rid = parseInt(document.getElementById('manageReceptionist').value);
+        const type = document.getElementById('addOrderType').value;
+        const orders = cachedData.orders;
+        const date = document.getElementById('addOrderDate').value;
+        const bossName = document.getElementById('addOrderBoss').value;
+
+        if (type === 'monthly') {
+          // 月卡单：根据数量批量创建
+          const count = parseInt(document.getElementById('addOrderCount').value) || 1;
+          for (let i = 0; i < count; i++) {
+            orders.push({
+              id: Date.now() + i, receptionistId: rid, date: date,
+              bossName: bossName, type: 'monthly',
+              divinerId: '无', amount: 0,
+              createdAt: new Date().toISOString(), approved: true
+            });
+          }
+          DataStore.saveOrders(orders);
+          closeAddOrderModal();
+          alert('补录成功！共添加 ' + count + ' 个月卡单');
+        } else {
+          // 其他类型：单个创建
+          orders.push({
+            id: Date.now(), receptionistId: rid, date: date,
+            bossName: bossName, type: type,
+            divinerId: type === 'prepaid' ? '无' : '',
+            amount: parseFloat(document.getElementById('addOrderAmount').value) || 0,
+            createdAt: new Date().toISOString(), approved: true
+          });
+          DataStore.saveOrders(orders);
+          closeAddOrderModal();
+          alert('补录成功！');
+        }
+      });
+    }
+
+    function onAddOrderTypeChange() {
+      const type = document.getElementById('addOrderType').value;
+      const amountGroup = document.getElementById('addOrderAmountGroup');
+      const countGroup = document.getElementById('addOrderCountGroup');
+      if (type === 'monthly') {
+        amountGroup.classList.add('hidden');
+        countGroup.classList.remove('hidden');
+      } else {
+        amountGroup.classList.remove('hidden');
+        countGroup.classList.add('hidden');
+      }
+    }
+
+    function onManageReceptionistChange() {
+      const v = document.getElementById('manageReceptionist').value;
+      document.getElementById('manageActions').classList.toggle('hidden', !v);
+    }
+    function showAddOrderModal() { document.getElementById('addOrderModal').classList.remove('hidden'); }
+    function closeAddOrderModal() { document.getElementById('addOrderModal').classList.add('hidden'); }
+    function showDeleteModal() { document.getElementById('deleteModal').classList.remove('hidden'); }
+    function closeDeleteModal() { document.getElementById('deleteModal').classList.add('hidden'); }
+    function deleteAccount(keepOrders) {
+      const rid = parseInt(document.getElementById('manageReceptionist').value);
+      const receptionists = cachedData.receptionists;
+      if (keepOrders) {
+        DataStore.saveReceptionists(receptionists.map(r => r.id === rid ? { ...r, isDeleted: true } : r));
+      } else {
+        DataStore.saveReceptionists(receptionists.filter(r => r.id !== rid));
+        DataStore.saveOrders(cachedData.orders.filter(o => o.receptionistId !== rid));
+      }
+      closeDeleteModal();
+      renderManageReceptionists();
+    }
+
+    // 实习管理视图
+    function renderInternManagement() {
+      const interns = cachedData.receptionists.filter(r => r.role === 'receptionist' && r.isIntern && !r.isDeleted);
+      let html = renderHeader() + `
+      <div class="card" >
+          <h2 style="font-size: 18px; margin-bottom: 16px;">🎓 接待管理（实习）</h2>
+          <p class="text-muted text-sm mb-4">勾选后表示通过实习，底薪从 20 元/周 → 40 元/周</p>
+          ${interns.length === 0 ? '<p class="text-muted text-center" style="padding: 20px;">暂无实习中的接待</p>' : interns.map(r => `
+            <div class="flex justify-between items-center" style="padding: 16px; background: var(--bg-light); border-radius: 12px; margin-bottom: 12px;">
+              <div class="flex items-center gap-3">
+                <span style="font-size: 24px;">${r.emoji}</span>
+                <span>${r.name}</span>
+              </div>
+              <button class="settle-checkbox" onclick="passIntern('${r.id}')">✓</button>
+            </div>
+          `).join('')
+        }
+        </div >
+      `;
+      document.getElementById('pageContent').innerHTML = html;
+    }
+
+    async function passIntern(rid) {
+      await DataStore.updateReceptionist(rid, { isIntern: false });
+      await refreshData();
+      renderInternManagement();
+    }
+
+    // 惩罚系统视图
+    function renderPenalty() {
+      const receptionists = cachedData.receptionists.filter(r => r.role === 'receptionist' && !r.isDeleted);
+      const allReceptionists = cachedData.receptionists.filter(r => r.role === 'receptionist');
+
+      // 获取本月所有罚款记录 - 从 penalties 表
+      const monthStart = getMonthStart();
+      let monthlyPenalties = cachedData.penalties
+        .filter(p => new Date(p.date) >= monthStart)
+        .map(p => {
+          const r = allReceptionists.find(rec => rec.id === p.receptionistId);
+          return {
+            ...p,
+            receptionistName: r?.name || '未知',
+            receptionistEmoji: r?.emoji || '👤'
+          };
+        });
+      // 按日期排序，最新的在前面
+      monthlyPenalties.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+      let html = renderHeader() + `
+      <div class="card mb-4" >
+          <h2 style="font-size: 18px; margin-bottom: 16px;">⚠️ 惩罚系统</h2>
+          <div id="penaltySuccess" class="error-message hidden" style="background: rgba(239,68,68,0.2);">惩罚已记录</div>
+          <form id="penaltyForm">
+            <div class="form-group">
+              <label class="form-label">罚款人</label>
+              <select id="penaltyReceptionist" class="form-select" required>
+                <option value="">请选择接待</option>
+                ${receptionists.map(r => '<option value="' + r.id + '">' + r.emoji + ' ' + r.name + '</option>').join('')}
+              </select>
+            </div>
+            <div class="form-group"><label class="form-label">罚款原因</label><input type="text" id="penaltyReason" class="form-input" placeholder="请输入罚款原因" required></div>
+            <div class="form-group"><label class="form-label">罚款时间</label><input type="date" id="penaltyDate" class="form-input" value="${getToday()}" required></div>
+            <div class="form-group"><label class="form-label">罚款金额</label><input type="number" id="penaltyAmount" class="form-input" placeholder="请输入金额" required></div>
+            <button type="submit" class="btn btn-danger btn-full">确认罚款</button>
+          </form>
+        </div >
+
+      <div class="card">
+        <h3 style="font-size: 16px; margin-bottom: 16px;">📋 本月罚款记录</h3>
+        ${monthlyPenalties.length === 0 ? '<p class="text-muted text-center" style="padding: 20px;">本月暂无罚款记录</p>' :
+          '<div style="margin-bottom: 12px; padding: 12px; background: rgba(239,68,68,0.1); border-radius: 10px; text-align: center;"><p class="text-muted text-sm">本月共 ' + monthlyPenalties.length + ' 条罚款</p><p style="font-size: 24px; font-weight: 700; color: var(--danger);">¥' + monthlyPenalties.reduce((sum, p) => sum + p.amount, 0).toFixed(2) + '</p></div>' +
+          monthlyPenalties.map(p => `
+              <div style="display: flex; align-items: center; padding: 12px; background: var(--bg-light); border-radius: 10px; margin-bottom: 8px; border-left: 4px solid var(--danger);">
+                <div style="flex: 1;">
+                  <p style="font-weight: 600; margin-bottom: 4px;">${p.receptionistEmoji} ${p.receptionistName}</p>
+                  <p class="text-sm text-muted" style="margin-bottom: 4px;">原因：${p.reason}</p>
+                  <p style="color: var(--danger); font-weight: 600; margin-bottom: 4px;">-¥${p.amount}</p>
+                  <p class="text-xs text-muted">${p.date}</p>
+                </div>
+                <button class="btn btn-secondary" style="padding: 8px; min-width: auto;" onclick="deletePenalty('${p.receptionistId}', ${p.id})">🗑️</button>
+              </div>
+            `).join('')
+        }
+      </div>
+    `;
+      document.getElementById('pageContent').innerHTML = html;
+      document.getElementById('penaltyForm').addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const rid = document.getElementById('penaltyReceptionist').value;
+        const penalty = {
+          receptionistId: rid,
+          reason: document.getElementById('penaltyReason').value,
+          date: document.getElementById('penaltyDate').value,
+          amount: parseFloat(document.getElementById('penaltyAmount').value)
+        };
+
+        await DataStore.savePenalty(penalty);
+
+        document.getElementById('penaltySuccess').classList.remove('hidden');
+        setTimeout(async () => {
+          document.getElementById('penaltySuccess').classList.add('hidden');
+          document.getElementById('penaltyForm').reset();
+          await refreshData();
+          renderPenalty();
+        }, 1000);
+      });
+    }
+
+    async function deletePenalty(receptionistId, penaltyId) {
+      if (confirm('确定删除此罚款记录？')) {
+        await DataStore.deletePenalty(penaltyId);
+        await refreshData();
+        renderPenalty();
+      }
+    }
+
+    function toggleDailyDetail(rid) {
+      const el = document.getElementById(`dailyDetail-${rid}`);
+      if (el) {
+        el.classList.toggle('hidden');
+        // 阻止冒泡防止触发其他点击事件（虽然这里可能不需要，但为了保险）
+        window.event && window.event.stopPropagation();
+      }
+    }
+
+    // 公告系统视图
+    function renderAnnouncement() {
+      const announcements = cachedData.announcements;
+      let html = renderHeader() + `
+      <div class="card" >
+          <h2 style="font-size: 18px; margin-bottom: 16px;">📢 通知公告系统</h2>
+          <div id="announcementSuccess" class="success-message hidden">✨ 公告已发布！</div>
+          <form id="announcementForm" class="mb-5">
+            <div class="form-group"><label class="form-label">公告内容</label><textarea id="announcementContent" class="form-input" style="min-height: 100px; resize: vertical;" placeholder="请输入公告内容" required></textarea></div>
+            <button type="submit" class="btn btn-primary btn-full">发布公告</button>
+          </form>
+          <h3 style="font-size: 16px; margin-bottom: 12px;">历史公告</h3>
+          ${announcements.length === 0 ? '<p class="text-muted text-sm">暂无公告</p>' : announcements.slice().reverse().map(a => `
+            <div style="padding: 12px; background: var(--bg-light); border-radius: 10px; margin-bottom: 8px; position: relative;">
+              <p style="font-size: 14px; line-height: 1.6; padding-right: 30px;">${a.content}</p>
+              <p class="text-xs text-muted mt-2">${new Date(a.createdAt).toLocaleString()}</p>
+              <button class="delete-cat-btn" style="top: 8px; right: 8px;" onclick="deleteAnnouncement(${a.id})">${createDeleteCatSVG()}</button>
+            </div>
+          `).join('')
+        }
+        </div >
+      `;
+      document.getElementById('pageContent').innerHTML = html;
+      document.getElementById('announcementForm').addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const content = document.getElementById('announcementContent').value.trim();
+        if (!content) return;
+
+        await DataStore.saveAnnouncement(content);
+
+        document.getElementById('announcementSuccess').classList.remove('hidden');
+        setTimeout(async () => {
+          document.getElementById('announcementSuccess').classList.add('hidden');
+          document.getElementById('announcementForm').reset();
+          await refreshData();
+          renderAnnouncement();
+        }, 1500);
+      });
+    }
+
+    async function deleteAnnouncement(id) {
+      if (confirm('确定删除此公告？')) {
+        await DataStore.deleteAnnouncement(id);
+        await refreshData();
+        renderAnnouncement();
+      }
+    }
+    // 接待详细记录视图
+    function renderReceptionistDetail(data) {
+      if (!data || !data.id) {
+        setView('manageReceptionists');
+        return;
+      }
+
+      const receptionists = cachedData.receptionists;
+      const r = receptionists.find(rec => rec.id === data.id) || { name: '未知', emoji: '👤' };
+      const orders = cachedData.orders.filter(o => o.receptionistId === data.id);
+
+      // 按时间倒序
+      orders.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+      const totalAmount = orders.reduce((sum, o) => {
+        // 只统计有金额的单子 (正常、礼物、预存)，月卡按 9.9
+        if (o.type === 'monthly') return sum + 9.9;
+        if (['normal', 'gift', 'deduct_prepaid', 'prepaid'].includes(o.type)) return sum + (o.amount || 0);
+        return sum;
+      }, 0);
+
+      let html = renderHeader() + `
+      <div class="card" >
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 24px;">
+             <button class="btn-text" onclick="setView('manageReceptionists')">← 返回</button>
+             <h2 style="font-size: 18px; margin: 0;">${r.emoji} ${r.name} 的接待记录</h2>
+          </div>
+
+           <div style="background: transparent; border: 1px solid var(--border); padding: 16px; border-radius: 12px; margin-bottom: 20px;">
+               <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 14px;">
+                  <div>
+                    <p class="text-muted">累计接单</p>
+                    <p style="font-size: 20px; font-weight: bold; color: var(--text);">${orders.length} 单</p>
+                  </div>
+                  <div>
+                    <p class="text-muted">累计流水</p>
+                    <p style="font-size: 20px; font-weight: bold; color: var(--accent);">¥${totalAmount.toFixed(0)}</p>
+                  </div>
+               </div>
+           </div>
+          
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            ${orders.length === 0 ? '<p class="text-muted text-center">暂无记录</p>' :
+          orders.map(o => {
+            const typeName = getOrderTypeName(o.type);
+            const typeColor = getOrderTypeColor(o.type);
+
+            return `
+                   <div style="background: var(--bg-light); padding: 12px; border-radius: 8px; border-left: 4px solid ${typeColor}; font-size: 14px; line-height: 1.6;">
+                      <p><span style="font-weight: bold;">日期：</span>${formatDate(o.date)}</p>
+                      <p><span style="font-weight: bold;">老板：</span>${o.bossName}</p>
+                      <p><span style="font-weight: bold;">单子类型：</span>${typeName}</p>
+                      <p><span style="font-weight: bold;">金额：</span>¥${o.amount}</p>
+                      ${o.divinerId && o.divinerId !== '无' ? `<p><span style="font-weight: bold;">占卜师：</span>${o.divinerId}</p>` : ''}
+                      ${o.questionContent ? `<p><span style="font-weight: bold;">问题：</span>${o.questionContent}</p>` : ''}
+                   </div>
+                 `;
+          }).join('')
+        }
+          </div>
+        </div >
+      `;
+      document.getElementById('pageContent').innerHTML = html;
+    }
+
+    // 占卜师详细记录视图
+    function renderDivinerDetail(data) {
+      if (!data || !data.name) {
+        setView('manageReceptionists');
+        return;
+      }
+
+      const divinerName = data.name;
+      const orders = cachedData.orders.filter(o => o.divinerId === divinerName);
+
+      // 按时间倒序
+      orders.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+      const receptionists = cachedData.receptionists;
+
+      const totalIncome = orders.reduce((sum, o) => {
+        if (o.type === 'monthly' || o.type === 'prepaid' || o.type === 'bonus') return sum;
+
+        const amount = o.amount || 0;
+        // 扣除存单：占卜师拿全部
+        if (o.type === 'deduct_prepaid') {
+          return sum + amount;
+        }
+
+        // 正常单/礼物单
+        const rec = receptionists.find(r => r.id === o.receptionistId) || { commissionRate: 5 };
+        const recComm = calculateCommission(o, rec);
+        const stuComm = calculateStudioIncomeForOrder(o);
+        const divComm = amount - recComm - stuComm;
+        return sum + divComm;
+      }, 0);
+
+      let html = renderHeader() + `
+      <div class="card" >
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 24px;">
+             <button class="btn-text" onclick="setView('manageReceptionists')">← 返回</button>
+             <h2 style="font-size: 18px; margin: 0;">🔮 ${divinerName} 的占卜记录</h2>
+          </div>
+
+           <div style="background: transparent; border: 1px solid var(--border); padding: 16px; border-radius: 12px; margin-bottom: 20px;">
+               <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 14px;">
+                  <div>
+                    <p class="text-muted">累计占卜</p>
+                    <p style="font-size: 20px; font-weight: bold; color: var(--text);">${orders.length} 单</p>
+                  </div>
+                  <div>
+                    <p class="text-muted">总共收入</p>
+                    <p style="font-size: 20px; font-weight: bold; color: var(--accent);">¥${totalIncome.toFixed(2)}</p>
+                  </div>
+               </div>
+           </div>
+          
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            ${orders.length === 0 ? '<p class="text-muted text-center">暂无记录</p>' :
+          orders.map(o => {
+            const typeName = getOrderTypeName(o.type);
+            const typeColor = getOrderTypeColor(o.type);
+            const receptionists = cachedData.receptionists;
+            const r = receptionists.find(rec => rec.id === o.receptionistId);
+            const rName = r ? r.name : '未知';
+
+            return `
+                   <div style="background: var(--bg-light); padding: 12px; border-radius: 8px; border-left: 4px solid ${typeColor}; font-size: 14px; line-height: 1.6;">
+                      <p><span style="font-weight: bold;">日期：</span>${formatDate(o.date)}</p>
+                      <p><span style="font-weight: bold;">老板：</span>${o.bossName}</p>
+                      <p><span style="font-weight: bold;">单子类型：</span>${typeName}</p>
+                      <p><span style="font-weight: bold;">金额：</span>¥${o.amount}</p>
+                      <p><span style="font-weight: bold;">接待：</span>${rName}</p>
+                      ${o.questionContent ? `<p><span style="font-weight: bold;">问题：</span>${o.questionContent}</p>` : ''}
+                   </div>
+                 `;
+          }).join('')
+        }
+          </div>
+        </div >
+      `;
+      document.getElementById('pageContent').innerHTML = html;
+    }
+
+    // 老板详细记录视图
+    function renderBossDetail(data) {
+      if (!data || !data.name) {
+        setView('bossList');
+        return;
+      }
+
+      const bossName = data.name;
+      const orders = cachedData.orders.filter(o => o.bossName === bossName);
+
+      // 1. Sort chronologically (Old -> New) to calculate running balance correctly
+      orders.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+      let runningBalance = 0;
+
+      // 2. Map orders to include balance snapshot
+      let processedOrders = orders.map(o => {
+        const price = o.amount || 0;
+        if (o.type === 'prepaid') {
+          runningBalance += price;
+        } else if (o.type === 'deduct_prepaid') {
+          runningBalance -= price;
+        }
+        return {
+          ...o,
+          snapshotBalance: runningBalance
+        };
+      });
+
+      // 3. Filter out monthly cards (Hide them)
+      processedOrders = processedOrders.filter(o => o.type !== 'monthly');
+
+      // 4. Sort reverse chronologically (New -> Old) for display
+      processedOrders.reverse();
+
+      let html = renderHeader() + `
+      <div class="card" >
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 24px;">
+             <button class="btn-text" onclick="setView('bossList')">← 返回</button>
+             <h2 style="font-size: 18px; margin: 0;">🐯 ${bossName} 的消费记录</h2>
+          </div>
+          
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            ${processedOrders.length === 0 ? '<p class="text-muted text-center">暂无记录</p>' :
+          processedOrders.map(o => {
+            const price = o.amount || 0;
+            const typeName = getOrderTypeName(o.type);
+            const typeColor = getOrderTypeColor(o.type);
+            const r = cachedData.receptionists.find(x => x.id === o.receptionistId);
+            const rName = r ? r.name : '未知';
+            const balance = o.snapshotBalance.toFixed(0);
+
+            return `
+                   <div style="background: var(--bg-light); padding: 16px; border-radius: 12px; border-left: 4px solid ${typeColor}; position: relative;">
+                      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                         <span style="font-weight: bold; font-size: 16px;">${typeName}</span>
+                         <span style="font-size: 14px; color: var(--text-muted);">${formatDate(o.date)}</span>
+                      </div>
+                      
+                      <div style="font-size: 14px; color: var(--text-muted); line-height: 1.6; margin-bottom: 8px;">
+                        ${o.questionContent ? `<p>问题：<span style="color: var(--text);">${o.questionContent}</span></p>` : ''}
+                        <p>单子价格：<span style="color: var(--text);">¥${price}</span></p>
+                        <p>接待：<span style="color: var(--text);">${rName}</span></p>
+                        ${o.divinerId && o.divinerId !== '无' ? `<p>占卜师：<span style="color: var(--text);">${o.divinerId}</span></p>` : ''}
+                      </div>
+
+                      <div style="text-align: right; border-top: 1px dashed var(--border); padding-top: 12px; margin-top: 8px;">
+                         <span style="color: var(--text-muted); font-size: 12px;">当前余额：</span>
+                         <span style="font-size: 24px; font-weight: bold; color: var(--accent);">¥${balance}</span>
+                      </div>
+                   </div>
+                 `;
+          }).join('')
+        }
+          </div>
+        </div >
+      `;
+
+      document.getElementById('pageContent').innerHTML = html;
+    }
+
+  </script>
+</body>
+
+</html>

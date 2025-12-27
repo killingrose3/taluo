@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nyx Studio - 接待员主页</title>
+  <meta name="description" content="Nyx Studio 接待员工作台">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <!-- Supabase JS -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+
+<body>
+  <div class="bg-decoration"></div>
+  <div class="stars-container"></div>
+
+  <div class="main-content">
+    <div class="container" id="pageContent">
+      <div style="display: flex; justify-content: center; align-items: center; padding: 40px;">
+        <div
+          style="width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite;">
+        </div>
+      </div>
+      <style>
+        @keyframes spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+      </style>
+    </div>
+  </div>
+
+  <div id="announcementModal" class="modal-overlay hidden">
+    <div class="card modal-content" style="max-width: 450px; max-height: 80vh; overflow-y: auto;">
+      <div style="text-align: center;">
+        <div style="font-size: 48px; margin-bottom: 16px;">📢</div>
+        <h2 style="color: var(--accent); margin-bottom: 16px;">通知公告</h2>
+      </div>
+      <div id="announcementContent" style="margin-bottom: 20px;"></div>
+      <button class="btn btn-accent btn-full" onclick="closeAnnouncement()">好滴！收到！</button>
+    </div>
+  </div>
+
+  <script src="supabase-config.js"></script>
+  <script src="utils.js"></script>
+  <script>
+    let showBalanceDetail = false;
+    let showPenalties = false;
+    let unreadCount = 0;
+    let cachedData = null;
+
+    const user = requireReceptionist();
+    if (!user) {
+      // 会自动跳转
+    } else {
+      initPage();
+    }
+
+    async function initPage() {
+      await loadData();
+      renderPage();
+    }
+
+    async function loadData() {
+      const [receptionists, orders, penalties, announcements] = await Promise.all([
+        DataStore.getReceptionists(),
+        DataStore.getOrders(),
+        DataStore.getPenaltiesByReceptionist(user.id),
+        DataStore.getAnnouncements()
+      ]);
+
+      const readAnnouncements = await DataStore.getReadAnnouncements(user.id);
+      const currentReceptionist = receptionists.find(r => r.id === user.id) || user;
+      const userOrders = orders.filter(o => o.receptionistId === user.id && o.approved !== false);
+
+      cachedData = {
+        receptionists,
+        orders,
+        userOrders,
+        penalties,
+        announcements,
+        readAnnouncements,
+        currentReceptionist
+      };
+    }
+
+    function renderPage() {
+      if (!cachedData) return;
+
+      const { userOrders, penalties, announcements, readAnnouncements, currentReceptionist } = cachedData;
+
+      // 计算未读通知数量
+      unreadCount = announcements.filter(a => !readAnnouncements.includes(a.id)).length;
+
+      // 结算逻辑
+      const lastSettlementTime = currentReceptionist.lastSettlementDate ? new Date(currentReceptionist.lastSettlementDate).getTime() : 0;
+      const weekStart = getWeekStart().getTime();
+      const taskStartTime = Math.max(weekStart, lastSettlementTime);
+
+      // 周期内订单
+      const weeklyOrders = userOrders.filter(o => {
+        const orderTime = new Date(o.createdAt).getTime();
+        return orderTime > lastSettlementTime && orderTime >= weekStart;
+      });
+
+      const weeklyMonthlyOrders = weeklyOrders.filter(o => o.type === 'monthly').length;
+      const taskComplete = weeklyMonthlyOrders >= 3;
+
+      const weeklyFlow = weeklyOrders
+        .filter(o => o.type === 'normal' || o.type === 'prepaid')
+        .reduce((sum, o) => sum + (o.amount || 0), 0);
+
+      const weeklyPrepaid = weeklyOrders
+        .filter(o => o.type === 'prepaid')
+        .reduce((sum, o) => sum + (o.amount || 0), 0);
+
+      // 计算余额
+      const balanceData = calculateBalanceSync(userOrders, penalties, currentReceptionist, taskComplete);
+
+      // 从 localStorage 获取 promotionChecks
+      const promotionChecks = JSON.parse(localStorage.getItem(`nyx_promo_${user.id}`) || '[false,false,false,false]');
+
+      let buffHtml = '';
+      if (currentReceptionist.commissionExpiry && new Date(currentReceptionist.commissionExpiry) > new Date()) {
+        const d = new Date(currentReceptionist.commissionExpiry);
+        buffHtml = '<p style="color: var(--accent); font-size: 13px; margin-top: 4px;">✨ 提成buff增加中～' + (d.getMonth() + 1) + '月' + d.getDate() + '日结束</p>';
+      }
+
+      let html = '<div class="page-header">' +
+        '<h1 class="page-title">🌙 Nyx Studio</h1>' +
+        '<button class="btn-text" onclick="logout()">退出登录</button>' +
+        '</div>' +
+        '<div class="card mb-5">' +
+        '<div class="user-card">' +
+        '<div class="user-avatar">' + user.emoji + '</div>' +
+        '<div class="user-info">' +
+        '<div class="user-name">' + user.name +
+        '<button class="notification-bubble" onclick="showAnnouncement()">📢 通知' + (unreadCount > 0 ? '<span class="notification-dot"></span>' : '') + '</button>' +
+        '</div><p class="user-role">职位：接待' + (currentReceptionist.isIntern ? '<span style="color: var(--warning); background: rgba(245, 158, 11, 0.15); padding: 2px 8px; border-radius: 4px; margin-left: 8px; font-size: 12px;">正在实习期，加油中！！！</span>' : '') + '</p>' + buffHtml + '</div></div>';
+
+      html += '<div class="balance-card ' + (balanceData.taskFailed ? 'balance-card-failed' : 'balance-card-normal') + '" onclick="toggleBalanceDetail()">' +
+        '<div class="balance-label">' +
+        '<span>当前余额</span>' +
+        '<span class="text-xs">' + (showBalanceDetail ? '▲ 收起' : '▼ 点击查看明细') + '</span>' +
+        '</div>' +
+        '<p class="balance-amount ' + (balanceData.taskFailed ? 'balance-amount-failed' : 'balance-amount-normal') + '">¥' + balanceData.amount.toFixed(2) + '</p>';
+
+      if (balanceData.taskFailed) {
+        html += '<p style="color: var(--danger); font-size: 14px; margin-top: 12px;">未完成任务TvT 联系运营好么宝宝</p>';
+      }
+
+      if (showBalanceDetail && !balanceData.taskFailed) {
+        html += renderBalanceDetail(userOrders, penalties, currentReceptionist, balanceData, taskComplete);
+      }
+
+      html += '</div></div>';
+
+      // 周任务进度
+      html += '<div class="card mb-5">';
+      if (!taskComplete) {
+        html += '<h3 style="font-size: 16px; margin-bottom: 12px;">📋 本周任务</h3>' +
+          '<div class="flex items-center gap-3 mb-2">' +
+          '<div class="progress-bar"><div class="progress-fill progress-fill-warning" style="width: ' + Math.min(weeklyMonthlyOrders / 3 * 100, 100) + '%"></div></div>' +
+          '<span class="text-sm text-muted">' + weeklyMonthlyOrders + '/3 月卡单</span>' +
+          '</div>' +
+          '<p style="font-size: 13px; color: var(--danger);">⚠️ 未完成任务将导致本周提成清零</p>';
+      } else {
+        html += '<h3 style="font-size: 16px; margin-bottom: 8px; color: var(--success);">🎉 周任务已完成 太棒啦宝宝!</h3>';
+
+        // 任务1
+        html += '<div class="task-block"><p style="font-size: 14px; margin-bottom: 8px;">1️⃣ 周流水达到500</p>' +
+          '<div class="flex items-center gap-3"><div class="progress-bar">' +
+          '<div class="progress-fill ' + (weeklyFlow >= 500 ? 'progress-fill-success' : 'progress-fill-primary') + '" style="width: ' + Math.min(weeklyFlow / 500 * 100, 100) + '%"></div></div>' +
+          '<span class="text-xs ' + (weeklyFlow >= 500 ? 'order-type-monthly' : 'text-muted') + '">' + Math.min(Math.round(weeklyFlow / 500 * 100), 100) + '%</span></div></div>';
+
+        // 任务2
+        html += '<div class="task-block"><p style="font-size: 14px; margin-bottom: 8px;">2️⃣ 在任意平台发布宣传贴文4条</p><div class="flex gap-2 flex-wrap">';
+        for (let i = 0; i < 4; i++) {
+          html += '<button class="task-check-btn" style="border: 2px solid ' + (promotionChecks[i] ? 'var(--success)' : 'var(--border)') + '; background: ' + (promotionChecks[i] ? 'rgba(16,185,129,0.2)' : 'transparent') + '; color: ' + (promotionChecks[i] ? 'var(--success)' : 'var(--text-muted)') + ';" onclick="togglePromotionCheck(' + i + ')">' + (promotionChecks[i] ? '✓' : (i + 1)) + '</button>';
+        }
+        html += '<span class="text-xs ' + (promotionChecks.filter(Boolean).length >= 4 ? 'order-type-monthly' : 'text-muted') + '" style="align-self: center; margin-left: 8px;">' + promotionChecks.filter(Boolean).length + '/4</span></div></div>';
+
+        // 任务3
+        html += '<div class="task-block"><p style="font-size: 14px; margin-bottom: 8px;">3️⃣ 老板预存666</p>' +
+          '<div class="flex items-center gap-3"><div class="progress-bar">' +
+          '<div class="progress-fill ' + (weeklyPrepaid >= 666 ? 'progress-fill-success' : 'progress-fill-warning') + '" style="width: ' + Math.min(weeklyPrepaid / 666 * 100, 100) + '%"></div></div>' +
+          '<span class="text-xs ' + (weeklyPrepaid >= 666 ? 'order-type-monthly' : 'text-muted') + '">' + Math.min(Math.round(weeklyPrepaid / 666 * 100), 100) + '%</span></div></div>';
+
+        // 任务4
+        html += '<div class="task-block" style="margin-bottom: 0;"><p style="font-size: 14px; margin-bottom: 8px;">4️⃣ 拉到下单月卡老板9名</p>' +
+          '<div class="flex items-center gap-3"><div class="progress-bar">' +
+          '<div class="progress-fill ' + (weeklyMonthlyOrders >= 9 ? 'progress-fill-success' : 'progress-fill-primary') + '" style="width: ' + Math.min(weeklyMonthlyOrders / 9 * 100, 100) + '%"></div></div>' +
+          '<span class="text-xs ' + (weeklyMonthlyOrders >= 9 ? 'order-type-monthly' : 'text-muted') + '">' + weeklyMonthlyOrders + '/9</span></div></div>';
+      }
+      html += '</div>';
+
+      html += renderPenaltiesSection(penalties);
+
+      html += '<div class="flex flex-col gap-3">' +
+        '<button class="btn btn-accent btn-full" onclick="navigateTo(\'submit-order.html\')">📝 提交订单</button>' +
+        '<button class="btn btn-secondary btn-full" onclick="navigateTo(\'view-records.html\')">📅 查看我的提交记录</button>' +
+        '</div>';
+
+      document.getElementById('pageContent').innerHTML = html;
+    }
+
+    function calculateBalanceSync(orders, penalties, receptionist, taskComplete) {
+      const lastSettlementTime = receptionist.lastSettlementDate ? new Date(receptionist.lastSettlementDate).getTime() : 0;
+
+      const userOrders = orders.filter(o =>
+        o.approved !== false &&
+        new Date(o.createdAt).getTime() > lastSettlementTime
+      );
+
+      let balance = 0;
+      userOrders.forEach(order => {
+        if (order.type === 'bonus') {
+          balance += order.amount;
+        } else if (order.type !== 'monthly' && order.type !== 'deduct_prepaid') {
+          balance += calculateCommission(order, receptionist);
+        }
+      });
+
+      // 减去惩罚
+      penalties.forEach(p => {
+        const penaltyTime = p.createdAt ? new Date(p.createdAt).getTime() : new Date(p.date).getTime();
+        if (penaltyTime > lastSettlementTime) {
+          balance -= p.amount;
+        }
+      });
+
+      if (isAfterSundayDeadline() && !taskComplete) {
+        return { amount: 0, taskFailed: true };
+      }
+
+      if (taskComplete) {
+        const baseSalary = receptionist.isIntern ? 20 : 40;
+        balance += baseSalary;
+      }
+
+      return { amount: Math.round(balance * 100) / 100, taskFailed: false };
+    }
+
+    function renderBalanceDetail(orders, penalties, receptionist, balanceData, taskComplete) {
+      let html = '<div class="balance-detail" onclick="event.stopPropagation()">' +
+        '<h4 style="font-size: 14px; margin-bottom: 12px; color: var(--text);">💰 余额来源明细</h4>';
+
+      if (taskComplete) {
+        html += '<div class="balance-detail-item"><span class="balance-detail-label">🎯 底薪（' + (receptionist.isIntern ? '实习' : '正式') + '）</span>' +
+          '<span style="color: var(--success); font-weight: 600;">+¥' + (receptionist.isIntern ? '20.00' : '40.00') + '</span></div>';
+      }
+
+      orders.forEach(function (order) {
+        if (order.type === 'bonus') {
+          html += '<div class="balance-detail-item"><span class="balance-detail-label">🎉 奖金</span>' +
+            '<span style="color: var(--bonus); font-weight: 600;">+¥' + order.amount.toFixed(2) + '</span></div>';
+        } else if (order.type !== 'monthly' && order.type !== 'deduct_prepaid') {
+          var rate = receptionist.commissionExpiry && new Date(receptionist.commissionExpiry) > new Date(order.date)
+            ? receptionist.commissionRate
+            : (order.type === 'normal' ? 5 : order.type === 'gift' ? 10 : 5);
+          var commission = order.amount * (rate / 100);
+          var icons = { normal: '📦', gift: '🎁', prepaid: '💳' };
+          html += '<div class="balance-detail-item"><span class="balance-detail-label">' + (icons[order.type] || '📦') + ' ' + getOrderTypeName(order.type) + '</span>' +
+            '<span style="color: ' + getOrderTypeColor(order.type) + '; font-weight: 600;">+¥' + commission.toFixed(2) + '</span></div>';
+        }
+      });
+
+      penalties.forEach(function (penalty) {
+        html += '<div class="balance-detail-item"><span class="balance-detail-label">⚠️ 惩罚</span>' +
+          '<span style="color: var(--danger); font-weight: 600;">-¥' + penalty.amount.toFixed(2) + '</span></div>';
+      });
+
+      html += '<div class="balance-detail-total"><span>💰 总计</span>' +
+        '<span style="color: var(--accent);">¥' + balanceData.amount.toFixed(2) + '</span></div></div>';
+
+      return html;
+    }
+
+    function renderPenaltiesSection(penalties) {
+      if (penalties.length === 0) return '';
+
+      var html = '<div class="card mb-5" style="border-color: var(--danger);">' +
+        '<button class="btn-text" style="width: 100%; text-align: left; padding: 0;" onclick="togglePenalties()">' +
+        '<div class="flex justify-between items-center">' +
+        '<p style="color: var(--danger); font-size: 14px;">⚠️ 有 ' + penalties.length + ' 条惩罚记录（点击查看）</p>' +
+        '<span style="color: var(--danger);">' + (showPenalties ? '▲' : '▼') + '</span></div></button>';
+
+      if (showPenalties) {
+        html += '<div style="margin-top: 12px;">';
+        penalties.forEach(function (penalty) {
+          html += '<div style="padding: 12px; border-radius: 8px; background: rgba(239,68,68,0.1); margin-bottom: 8px;">' +
+            '<div class="flex justify-between mb-1"><span style="color: var(--danger); font-weight: 600;">-¥' + penalty.amount + '</span>' +
+            '<span class="text-xs text-muted">' + penalty.date + '</span></div>' +
+            '<p class="text-sm">原因：' + penalty.reason + '</p></div>';
+        });
+        html += '</div>';
+      }
+
+      html += '</div>';
+      return html;
+    }
+
+    function toggleBalanceDetail() {
+      showBalanceDetail = !showBalanceDetail;
+      renderPage();
+    }
+
+    function togglePenalties() {
+      showPenalties = !showPenalties;
+      renderPage();
+    }
+
+    function togglePromotionCheck(index) {
+      var checks = JSON.parse(localStorage.getItem(`nyx_promo_${user.id}`) || '[false,false,false,false]');
+      checks[index] = !checks[index];
+      localStorage.setItem(`nyx_promo_${user.id}`, JSON.stringify(checks));
+      renderPage();
+    }
+
+    async function showAnnouncement() {
+      var announcements = cachedData.announcements;
+      var readAnnouncements = cachedData.readAnnouncements;
+
+      // 过滤7天内的公告
+      var sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      var recentAnnouncements = announcements.filter(function (a) {
+        return new Date(a.createdAt) >= sevenDaysAgo;
+      }).sort(function (a, b) {
+        return new Date(b.createdAt) - new Date(a.createdAt);
+      });
+
+      var html = '';
+      if (recentAnnouncements.length === 0) {
+        html = '<p class="text-muted text-center" style="padding: 20px;">暂无通知</p>';
+      } else {
+        recentAnnouncements.forEach(function (a, index) {
+          var isUnread = !readAnnouncements.includes(a.id);
+          var isLatest = index === 0;
+          html += '<div style="padding: 12px; border-radius: 10px; background: var(--bg-light); margin-bottom: 12px; border-left: 4px solid ' + (isUnread ? 'var(--accent)' : 'var(--border)') + '; position: relative;">';
+          html += '<div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">';
+          html += '<div>';
+          if (isUnread) {
+            html += '<span style="display: inline-block; background: var(--accent); color: var(--bg); font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-right: 6px;">NEW</span>';
+          }
+          html += '</div>';
+          if (isLatest) {
+            html += '<span style="background: linear-gradient(135deg, var(--primary), var(--primary-light)); color: white; font-size: 10px; padding: 3px 8px; border-radius: 4px; white-space: nowrap;">✨ 最新通知</span>';
+          }
+          html += '</div>';
+          html += '<p style="font-size: 14px; line-height: 1.6;">' + a.content + '</p>';
+          html += '<p class="text-xs text-muted" style="margin-top: 8px;">' + new Date(a.createdAt).toLocaleString() + '</p>';
+          html += '</div>';
+        });
+      }
+
+      document.getElementById('announcementContent').innerHTML = html;
+      document.getElementById('announcementModal').classList.remove('hidden');
+    }
+
+    async function closeAnnouncement() {
+      // 标记所有7天内的公告为已读
+      var announcements = cachedData.announcements;
+      var sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+      for (const a of announcements) {
+        if (new Date(a.createdAt) >= sevenDaysAgo) {
+          await DataStore.markAnnouncementRead(user.id, a.id);
+        }
+      }
+
+      document.getElementById('announcementModal').classList.add('hidden');
+      await loadData();
+      renderPage();
+    }
+  </script>
+</body>
+
+</html>

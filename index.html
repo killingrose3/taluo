@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nyx Studio - 登录</title>
+    <meta name="description" content="Nyx Studio 塔罗牌工作室接待管理系统">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <!-- Supabase JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+
+<body>
+    <!-- 背景装饰 -->
+    <div class="bg-decoration"></div>
+    <div class="stars-container"></div>
+
+    <!-- 主内容 -->
+    <div class="main-content page-center">
+        <div class="card" style="max-width: 420px; width: 100%;">
+            <!-- Logo -->
+            <div class="logo-section">
+                <div class="logo-icon">🌙</div>
+                <h1 class="logo-title">Nyx Studio</h1>
+                <p class="logo-subtitle">接待管理系统</p>
+            </div>
+
+            <!-- 登录表单 -->
+            <form id="loginForm">
+                <div class="form-group">
+                    <label class="form-label">用户名</label>
+                    <input type="text" id="username" class="form-input" placeholder="请输入用户名" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">密码</label>
+                    <input type="password" id="password" class="form-input" placeholder="请输入密码" required>
+                </div>
+
+                <div id="errorMessage" class="error-message hidden"></div>
+
+                <button type="submit" id="loginBtn" class="btn btn-primary btn-full mb-4">登录</button>
+
+                <div class="text-center">
+                    <button type="button" class="btn-link" onclick="navigateTo('register.html')">
+                        ✨ 新人入驻？在这注册哦！
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="supabase-config.js"></script>
+    <script src="utils.js"></script>
+    <script>
+        console.log('登录页面已加载');
+        console.log('Supabase 加载状态:', typeof supabaseClient !== 'undefined' ? '成功' : '失败');
+
+        // 检查是否已登录
+        const currentUser = DataStore.getCurrentUser();
+        if (currentUser) {
+            console.log('用户已登录:', currentUser.name);
+            if (currentUser.role === 'manager') {
+                navigateTo('manager.html');
+            } else {
+                navigateTo('receptionist.html');
+            }
+        }
+
+        // 登录表单处理
+        document.getElementById('loginForm').addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+            const errorDiv = document.getElementById('errorMessage');
+            const loginBtn = document.getElementById('loginBtn');
+
+            // 显示加载状态
+            loginBtn.disabled = true;
+            loginBtn.textContent = '登录中...';
+            errorDiv.classList.add('hidden');
+
+            try {
+                const result = await handleLogin(username, password);
+                console.log('登录结果:', result);
+
+                if (result.success) {
+                    console.log('登录成功，用户角色:', result.user.role);
+                    if (result.user.role === 'manager') {
+                        window.location.href = 'manager.html';
+                    } else {
+                        window.location.href = 'receptionist.html';
+                    }
+                } else {
+                    errorDiv.textContent = result.message;
+                    errorDiv.classList.remove('hidden');
+                    loginBtn.disabled = false;
+                    loginBtn.textContent = '登录';
+                }
+            } catch (e) {
+                console.error('登录过程出错:', e);
+                errorDiv.textContent = '登录出错: ' + e.message;
+                errorDiv.classList.remove('hidden');
+                loginBtn.disabled = false;
+                loginBtn.textContent = '登录';
+            }
+        });
+    </script>
+</body>
+
+</html>

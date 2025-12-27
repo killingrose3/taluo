@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nyx Studio - 注册</title>
+    <meta name="description" content="Nyx Studio 新人入驻注册">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <!-- Supabase JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+
+<body>
+    <!-- 背景装饰 -->
+    <div class="bg-decoration"></div>
+    <div class="stars-container"></div>
+
+    <!-- 主内容 -->
+    <div class="main-content page-center">
+        <div class="card" style="max-width: 420px; width: 100%;">
+            <!-- 标题 -->
+            <div class="text-center mb-5">
+                <h2 style="font-size: 24px; margin-bottom: 8px;">✨ 新人入驻</h2>
+                <p class="text-muted" style="font-size: 14px;">欢迎加入 Nyx Studio</p>
+            </div>
+
+            <!-- 注册表单 -->
+            <form id="registerForm">
+                <div class="form-group">
+                    <label class="form-label">名称</label>
+                    <input type="text" id="name" class="form-input" placeholder="请输入你的名称" required>
+                </div>
+
+                <!-- Emoji选择 -->
+                <div class="form-group">
+                    <label class="form-label">选择你的专属 emoji</label>
+                    <button type="button" id="emojiBtn" class="form-input"
+                        style="text-align: left; cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+                        <span id="emojiText">点击选择 emoji</span>
+                        <span id="emojiPreview" style="font-size: 24px;">📎</span>
+                    </button>
+                    <input type="hidden" id="selectedEmoji" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">密码</label>
+                    <input type="password" id="password" class="form-input" placeholder="设置你的密码" required>
+                </div>
+
+                <div id="errorMessage" class="error-message hidden"></div>
+
+                <button type="submit" id="registerBtn" class="btn btn-primary btn-full mb-4">完成注册</button>
+
+                <div class="text-center">
+                    <button type="button" class="btn-text" onclick="navigateTo('index.html')">
+                        ← 返回登录
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Emoji选择弹窗 -->
+    <div id="emojiModal" class="modal-overlay hidden">
+        <div class="card modal-content">
+            <div class="modal-header">
+                <h3 style="font-size: 18px;">选择 Emoji</h3>
+                <button type="button" class="modal-close" onclick="closeEmojiModal()">×</button>
+            </div>
+
+            <!-- 分类标签 -->
+            <div class="emoji-category-tabs" id="categoryTabs"></div>
+
+            <!-- Emoji 网格 -->
+            <div class="emoji-grid" id="emojiGrid"></div>
+        </div>
+    </div>
+
+    <script src="supabase-config.js"></script>
+    <script src="utils.js"></script>
+    <script>
+        let currentCategory = '😊 表情';
+
+        // 初始化分类标签
+        function initCategoryTabs() {
+            const tabsContainer = document.getElementById('categoryTabs');
+            tabsContainer.innerHTML = '';
+
+            Object.keys(emojiCategories).forEach(cat => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'emoji-category-btn' + (cat === currentCategory ? ' active' : '');
+                btn.textContent = cat;
+                btn.onclick = () => selectCategory(cat);
+                tabsContainer.appendChild(btn);
+            });
+        }
+
+        // 选择分类
+        function selectCategory(cat) {
+            currentCategory = cat;
+            initCategoryTabs();
+            renderEmojiGrid();
+        }
+
+        // 渲染 emoji 网格
+        function renderEmojiGrid() {
+            const grid = document.getElementById('emojiGrid');
+            grid.innerHTML = '';
+
+            const emojis = emojiCategories[currentCategory];
+            const selectedEmoji = document.getElementById('selectedEmoji').value;
+
+            emojis.forEach(emoji => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'emoji-btn' + (emoji === selectedEmoji ? ' selected' : '');
+                btn.textContent = emoji;
+                btn.onclick = () => selectEmoji(emoji);
+                grid.appendChild(btn);
+            });
+        }
+
+        // 选择 emoji
+        function selectEmoji(emoji) {
+            document.getElementById('selectedEmoji').value = emoji;
+            document.getElementById('emojiText').textContent = '已选择: ' + emoji;
+            document.getElementById('emojiPreview').textContent = emoji;
+            closeEmojiModal();
+        }
+
+        // 打开 emoji 弹窗
+        function openEmojiModal() {
+            initCategoryTabs();
+            renderEmojiGrid();
+            document.getElementById('emojiModal').classList.remove('hidden');
+        }
+
+        // 关闭 emoji 弹窗
+        function closeEmojiModal() {
+            document.getElementById('emojiModal').classList.add('hidden');
+        }
+
+        // Emoji 按钮点击
+        document.getElementById('emojiBtn').addEventListener('click', openEmojiModal);
+
+        // 注册表单处理
+        document.getElementById('registerForm').addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            const name = document.getElementById('name').value.trim();
+            const emoji = document.getElementById('selectedEmoji').value;
+            const password = document.getElementById('password').value;
+            const errorDiv = document.getElementById('errorMessage');
+            const registerBtn = document.getElementById('registerBtn');
+
+            if (!emoji) {
+                errorDiv.textContent = '请选择一个 emoji 哦～';
+                errorDiv.classList.remove('hidden');
+                return;
+            }
+
+            // 显示加载状态
+            registerBtn.disabled = true;
+            registerBtn.textContent = '注册中...';
+            errorDiv.classList.add('hidden');
+
+            try {
+                const result = await handleRegister(name, emoji, password);
+
+                if (result.success) {
+                    navigateTo('receptionist.html');
+                } else {
+                    errorDiv.textContent = result.message;
+                    errorDiv.classList.remove('hidden');
+                    registerBtn.disabled = false;
+                    registerBtn.textContent = '完成注册';
+                }
+            } catch (e) {
+                console.error('注册过程出错:', e);
+                errorDiv.textContent = '注册出错: ' + e.message;
+                errorDiv.classList.remove('hidden');
+                registerBtn.disabled = false;
+                registerBtn.textContent = '完成注册';
+            }
+        });
+    </script>
+</body>
+
+</html>

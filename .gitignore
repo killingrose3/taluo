@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Node (如果以后添加)
+node_modules/
+npm-debug.log
+
+# 环境变量 (如果以后使用)
+.env
+.env.local
+.env.*.local
+
+# Vercel
+.vercel

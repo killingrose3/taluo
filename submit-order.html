@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nyx Studio - 提交订单</title>
+    <meta name="description" content="Nyx Studio 提交订单">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <!-- Supabase JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+
+<body>
+    <!-- 背景装饰 -->
+    <div class="bg-decoration"></div>
+    <div class="stars-container"></div>
+
+    <!-- 主内容 -->
+    <div class="main-content">
+        <div class="container" id="pageContent">
+            <!-- 内容将通过JS加载 -->
+        </div>
+    </div>
+
+    <!-- 成功弹窗 -->
+    <div id="successModal" class="modal-overlay hidden">
+        <div class="card modal-content text-center" style="padding: 40px;">
+            <div style="font-size: 64px; margin-bottom: 16px;">✨</div>
+            <h2 style="color: var(--success); margin-bottom: 8px;">提交成功！</h2>
+            <p class="text-muted">订单已提交，等待审核中～</p>
+        </div>
+    </div>
+
+    <script src="supabase-config.js"></script>
+    <script src="utils.js"></script>
+    <script>
+        let cachedOrders = [];
+
+        // 检查登录状态
+        const user = requireReceptionist();
+        if (!user) {
+            // 会自动跳转
+        } else {
+            initPage();
+        }
+
+        async function initPage() {
+            // 预加载订单数据用于验证
+            cachedOrders = await DataStore.getOrders();
+            renderPage();
+        }
+
+        function renderPage() {
+            const html = `
+        <div class="back-header">
+          <button class="back-button" onclick="navigateTo('receptionist.html')">←</button>
+          <h1 class="page-title">📝 提交订单</h1>
+        </div>
+        
+        <div class="card">
+          <form id="orderForm">
+            <div class="form-group">
+              <label class="form-label">日期</label>
+              <input type="date" id="orderDate" class="form-input" value="${getToday()}" required>
+              <p class="form-hint">请确定好日期是否正确哦宝宝～</p>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">接待名称</label>
+              <input type="text" class="form-input form-input-readonly" value="${user.emoji} ${user.name}" disabled>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">老板名称</label>
+              <input type="text" id="bossName" class="form-input" placeholder="请输入老板名称" required>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">单子类型</label>
+              <select id="orderType" class="form-select" onchange="onOrderTypeChange()">
+                <option value="normal">正常单</option>
+                <option value="gift">礼物单</option>
+                <option value="monthly">月卡单</option>
+                <option value="prepaid">预存单</option>
+                <option value="deduct_prepaid">扣除存单</option>
+              </select>
+            </div>
+            
+            <div class="form-group" id="divinerGroup">
+              <label class="form-label">占卜师名称</label>
+              <input type="text" id="divinerId" class="form-input" placeholder="请输入占卜师名称">
+            </div>
+            
+            <div class="form-group" id="questionGroup">
+              <label class="form-label">问题内容</label>
+              <input type="text" id="questionContent" class="form-input" placeholder="请简单描述占卜内容">
+            </div>
+            
+            <div class="form-group" id="amountGroup">
+              <label class="form-label">金额</label>
+              <input type="number" id="amount" class="form-input" placeholder="请输入金额">
+              <p class="form-hint" id="amountHint">允许金额：${allowedNormalAmounts.slice().sort((a, b) => a - b).join('、')}</p>
+            </div>
+            
+            <div class="form-group hidden" id="monthlyAmountGroup">
+              <label class="form-label">金额</label>
+              <div class="form-input form-input-readonly">无</div>
+            </div>
+            
+            <div id="errorMessage" class="error-message hidden"></div>
+            
+            <button type="submit" id="submitBtn" class="btn btn-accent btn-full">确认提交</button>
+          </form>
+        </div>
+      `;
+
+            document.getElementById('pageContent').innerHTML = html;
+            onOrderTypeChange();
+        }
+
+        function onOrderTypeChange() {
+            const orderType = document.getElementById('orderType').value;
+            const isMonthly = orderType === 'monthly';
+            const isPrepaid = orderType === 'prepaid';
+            const isDeductPrepaid = orderType === 'deduct_prepaid';
+            const isNormal = orderType === 'normal';
+
+            // 占卜师名称 
+            const divinerGroup = document.getElementById('divinerGroup');
+            const divinerId = document.getElementById('divinerId');
+            if (isMonthly || isPrepaid) {
+                divinerGroup.style.display = 'none';
+                divinerId.value = '无';
+            } else {
+                divinerGroup.style.display = 'block';
+                if (divinerId.value === '无') divinerId.value = '';
+            }
+
+            // 问题内容
+            const questionGroup = document.getElementById('questionGroup');
+            if (isMonthly || isPrepaid) {
+                questionGroup.style.display = 'none';
+            } else {
+                questionGroup.style.display = 'block';
+            }
+
+            // 金额
+            const amountGroup = document.getElementById('amountGroup');
+            const monthlyAmountGroup = document.getElementById('monthlyAmountGroup');
+            const amountHint = document.getElementById('amountHint');
+
+            if (isMonthly) {
+                amountGroup.style.display = 'none';
+                monthlyAmountGroup.style.display = 'block';
+            } else {
+                amountGroup.style.display = 'block';
+                monthlyAmountGroup.style.display = 'none';
+
+                if (isNormal) {
+                    amountHint.innerHTML = `允许金额：${allowedNormalAmounts.slice().sort((a, b) => a - b).join('、')}`;
+                    amountHint.style.display = 'block';
+                } else if (isDeductPrepaid) {
+                    amountHint.innerHTML = `允许金额：${allowedDeductAmounts.slice().sort((a, b) => a - b).join('、')}`;
+                    amountHint.style.display = 'block';
+                } else {
+                    amountHint.style.display = 'none';
+                }
+            }
+        }
+
+        // 同步计算老板余额
+        function getBossBalanceFromCache(bossName) {
+            const bossOrders = cachedOrders.filter(o => o.bossName === bossName && o.approved !== false);
+            const totalPrepaid = bossOrders.filter(o => o.type === 'prepaid').reduce((sum, o) => sum + (o.amount || 0), 0);
+            const totalDeducted = bossOrders.filter(o => o.type === 'deduct_prepaid').reduce((sum, o) => sum + (o.amount || 0), 0);
+            return totalPrepaid - totalDeducted;
+        }
+
+        // 检查老板是否在系统中
+        function isBossInSystemSync(bossName) {
+            return cachedOrders.some(o => o.type === 'prepaid' && o.bossName === bossName);
+        }
+
+        document.getElementById('pageContent').addEventListener('submit', async function (e) {
+            if (e.target.id === 'orderForm') {
+                e.preventDefault();
+
+                const orderType = document.getElementById('orderType').value;
+                const bossName = document.getElementById('bossName').value.trim();
+                const amount = document.getElementById('amount').value;
+                const errorDiv = document.getElementById('errorMessage');
+                const submitBtn = document.getElementById('submitBtn');
+
+                // 验证
+                if (!bossName) {
+                    errorDiv.textContent = '补药走，还没有填写完整呢(｡•́︿•̀｡)';
+                    errorDiv.classList.remove('hidden');
+                    return;
+                }
+
+                if (orderType !== 'monthly' && !amount) {
+                    errorDiv.textContent = '补药走，还没有填写完整呢(｡•́︿•̀｡)';
+                    errorDiv.classList.remove('hidden');
+                    return;
+                }
+
+                // 扣除预存单特殊验证
+                if (orderType === 'deduct_prepaid') {
+                    if (!isBossInSystemSync(bossName)) {
+                        errorDiv.textContent = '请确认名字';
+                        errorDiv.classList.remove('hidden');
+                        return;
+                    }
+
+                    const currentBalance = getBossBalanceFromCache(bossName);
+                    const deductAmount = parseFloat(amount);
+                    if (currentBalance < deductAmount) {
+                        errorDiv.textContent = '余额不足了( ´•̥̥̥ω•̥̥̥ )';
+                        errorDiv.classList.remove('hidden');
+                        return;
+                    }
+
+                    if (!allowedDeductAmounts.includes(deductAmount)) {
+                        errorDiv.textContent = '输入金额有误';
+                        errorDiv.classList.remove('hidden');
+                        return;
+                    }
+
+                    const questionContent = document.getElementById('questionContent').value.trim();
+                    if (!questionContent) {
+                        errorDiv.textContent = '扣除存单必须填写问题内容哦宝宝～';
+                        errorDiv.classList.remove('hidden');
+                        return;
+                    }
+                    const divinerId = document.getElementById('divinerId').value.trim();
+                    if (!divinerId || divinerId === '无') {
+                        errorDiv.textContent = '扣除存单必须填写占卜师哦宝宝～';
+                        errorDiv.classList.remove('hidden');
+                        return;
+                    }
+                }
+
+                // 正常单金额验证
+                if (orderType === 'normal') {
+                    const amountNum = parseFloat(amount);
+                    if (!allowedNormalAmounts.includes(amountNum)) {
+                        errorDiv.textContent = '输入金额有误';
+                        errorDiv.classList.remove('hidden');
+                        return;
+                    }
+                    const questionContent = document.getElementById('questionContent').value.trim();
+                    if (!questionContent) {
+                        errorDiv.textContent = '正常单必须填写问题内容哦宝宝～';
+                        errorDiv.classList.remove('hidden');
+                        return;
+                    }
+                }
+
+                // 显示加载状态
+                submitBtn.disabled = true;
+                submitBtn.textContent = '提交中...';
+                errorDiv.classList.add('hidden');
+
+                try {
+                    const orderData = {
+                        date: document.getElementById('orderDate').value,
+                        bossName: bossName,
+                        type: orderType,
+                        divinerId: (orderType === 'monthly' || orderType === 'prepaid') ? '无' : document.getElementById('divinerId').value,
+                        amount: orderType === 'monthly' ? 0 : parseFloat(amount),
+                        questionContent: (orderType === 'monthly' || orderType === 'prepaid') ? '' : document.getElementById('questionContent').value
+                    };
+
+                    const result = await submitOrder(orderData);
+
+                    if (result.success) {
+                        document.getElementById('successModal').classList.remove('hidden');
+                        setTimeout(() => {
+                            navigateTo('receptionist.html');
+                        }, 1500);
+                    } else {
+                        errorDiv.textContent = result.message || '提交失败，请重试';
+                        errorDiv.classList.remove('hidden');
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = '确认提交';
+                    }
+                } catch (e) {
+                    console.error('提交订单出错:', e);
+                    errorDiv.textContent = '提交出错: ' + e.message;
+                    errorDiv.classList.remove('hidden');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = '确认提交';
+                }
+            }
+        });
+    </script>
+</body>
+
+</html>

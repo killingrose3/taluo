@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supabase 测试页面</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #1a1a2e;
+            color: #e2e8f0;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: #c77dff;
+        }
+
+        .test-section {
+            background: #252540;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+
+        .test-section h3 {
+            margin-top: 0;
+            color: #ffd700;
+        }
+
+        button {
+            background: #9d4edd;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 5px;
+        }
+
+        button:hover {
+            background: #c77dff;
+        }
+
+        .result {
+            background: #12121f;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 13px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .success {
+            color: #10b981;
+        }
+
+        .error {
+            color: #ef4444;
+        }
+
+        .info {
+            color: #3b82f6;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🔧 Supabase 测试页面</h1>
+
+    <div class="test-section">
+        <h3>1. 连接测试</h3>
+        <button onclick="testConnection()">测试连接</button>
+        <div id="connectionResult" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>2. 查询用户表</h3>
+        <button onclick="fetchUsers()">获取所有用户</button>
+        <div id="usersResult" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>3. 插入测试用户</h3>
+        <button onclick="insertTestUser()">插入测试接待员</button>
+        <button onclick="deleteTestUser()">删除测试接待员</button>
+        <div id="insertResult" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>4. 查询订单表</h3>
+        <button onclick="fetchOrders()">获取所有订单</button>
+        <div id="ordersResult" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>5. 其他表测试</h3>
+        <button onclick="fetchPenalties()">获取惩罚记录</button>
+        <button onclick="fetchAnnouncements()">获取公告</button>
+        <div id="otherResult" class="result"></div>
+    </div>
+
+    <script src="supabase-config.js"></script>
+    <script>
+        function log(elementId, message, type = 'info') {
+            const el = document.getElementById(elementId);
+            const colorClass = type === 'success' ? 'success' : type === 'error' ? 'error' : 'info';
+            el.innerHTML = `<span class="${colorClass}">${new Date().toLocaleTimeString()}: ${message}</span>`;
+        }
+
+        async function testConnection() {
+            log('connectionResult', '正在测试连接...');
+            try {
+                if (!window.supabaseClient) {
+                    throw new Error('supabaseClient 未定义，请检查 supabase-config.js');
+                }
+
+                // 简单查询测试
+                const { data, error } = await supabaseClient.from('users').select('count');
+
+                if (error) {
+                    throw error;
+                }
+
+                log('connectionResult', '✅ 连接成功！数据库响应正常。', 'success');
+            } catch (err) {
+                log('connectionResult', `❌ 连接失败: ${err.message}`, 'error');
+            }
+        }
+
+        async function fetchUsers() {
+            log('usersResult', '正在获取用户...');
+            try {
+                const { data, error } = await supabaseClient
+                    .from('users')
+                    .select('*')
+                    .order('created_at', { ascending: true });
+
+                if (error) throw error;
+
+                if (data.length === 0) {
+                    log('usersResult', '⚠️ 用户表为空。请先在 Supabase 执行 SQL 脚本创建管理员账号。', 'error');
+                } else {
+                    log('usersResult', `✅ 找到 ${data.length} 个用户:\n${JSON.stringify(data, null, 2)}`, 'success');
+                }
+            } catch (err) {
+                log('usersResult', `❌ 查询失败: ${err.message}\n\n可能原因:\n1. 用户表不存在 - 请执行 supabase_schema.sql\n2. RLS策略阻止访问 - 请禁用RLS`, 'error');
+            }
+        }
+
+        async function insertTestUser() {
+            log('insertResult', '正在插入测试用户...');
+            try {
+                const testUser = {
+                    name: '测试接待_' + Date.now(),
+                    emoji: '🧪',
+                    password: 'test123',
+                    role: 'receptionist',
+                    is_intern: true,
+                    is_deleted: false,
+                    commission_rate: 5
+                };
+
+                const { data, error } = await supabaseClient
+                    .from('users')
+                    .insert(testUser)
+                    .select();
+
+                if (error) throw error;
+
+                log('insertResult', `✅ 插入成功!\n${JSON.stringify(data, null, 2)}`, 'success');
+            } catch (err) {
+                log('insertResult', `❌ 插入失败: ${err.message}\n\n可能原因:\n1. 用户表不存在\n2. RLS策略阻止写入\n3. 字段类型不匹配`, 'error');
+            }
+        }
+
+        async function deleteTestUser() {
+            log('insertResult', '正在删除测试用户...');
+            try {
+                const { data, error } = await supabaseClient
+                    .from('users')
+                    .delete()
+                    .like('name', '测试接待_%')
+                    .select();
+
+                if (error) throw error;
+
+                log('insertResult', `✅ 已删除 ${data.length} 个测试用户`, 'success');
+            } catch (err) {
+                log('insertResult', `❌ 删除失败: ${err.message}`, 'error');
+            }
+        }
+
+        async function fetchOrders() {
+            log('ordersResult', '正在获取订单...');
+            try {
+                const { data, error } = await supabaseClient
+                    .from('orders')
+                    .select('*')
+                    .limit(10);
+
+                if (error) throw error;
+
+                log('ordersResult', `✅ 找到 ${data.length} 条订单:\n${JSON.stringify(data, null, 2)}`, 'success');
+            } catch (err) {
+                log('ordersResult', `❌ 查询失败: ${err.message}`, 'error');
+            }
+        }
+
+        async function fetchPenalties() {
+            log('otherResult', '正在获取惩罚记录...');
+            try {
+                const { data, error } = await supabaseClient.from('penalties').select('*');
+                if (error) throw error;
+                log('otherResult', `✅ 惩罚记录: ${data.length} 条\n${JSON.stringify(data, null, 2)}`, 'success');
+            } catch (err) {
+                log('otherResult', `❌ 查询失败: ${err.message}`, 'error');
+            }
+        }
+
+        async function fetchAnnouncements() {
+            log('otherResult', '正在获取公告...');
+            try {
+                const { data, error } = await supabaseClient.from('announcements').select('*');
+                if (error) throw error;
+                log('otherResult', `✅ 公告: ${data.length} 条\n${JSON.stringify(data, null, 2)}`, 'success');
+            } catch (err) {
+                log('otherResult', `❌ 查询失败: ${err.message}`, 'error');
+            }
+        }
+
+        // 页面加载时自动测试连接
+        window.onload = () => {
+            console.log('Supabase client:', window.supabaseClient);
+            testConnection();
+        };
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nyx Studio - 查看记录</title>
+  <meta name="description" content="Nyx Studio 查看提交记录">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <!-- Supabase JS -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+
+<body>
+  <!-- 背景装饰 -->
+  <div class="bg-decoration"></div>
+  <div class="stars-container"></div>
+
+  <!-- 主内容 -->
+  <div class="main-content">
+    <div class="container" id="pageContent">
+      <div style="display: flex; justify-content: center; align-items: center; padding: 40px;">
+        <div
+          style="width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite;">
+        </div>
+      </div>
+      <style>
+        @keyframes spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+      </style>
+    </div>
+  </div>
+
+  <script src="supabase-config.js"></script>
+  <script src="utils.js"></script>
+  <script>
+    // 先初始化变量
+    let currentDate = new Date();
+    let selectedDate = null;
+    let cachedOrders = [];
+
+    // 检查登录状态
+    const user = requireReceptionist();
+    if (!user) {
+      // 会自动跳转
+    } else {
+      initCalendar();
+    }
+
+    async function initCalendar() {
+      await loadData();
+      renderPage();
+    }
+
+    async function loadData() {
+      const orders = await DataStore.getOrders();
+      cachedOrders = orders.filter(o => o.receptionistId === user.id && o.approved !== false);
+    }
+
+    function renderPage() {
+      const orders = cachedOrders;
+      const year = currentDate.getFullYear();
+      const month = currentDate.getMonth();
+      const daysInMonth = getDaysInMonth(year, month);
+      const firstDay = new Date(year, month, 1).getDay();
+
+      const selectedOrders = selectedDate ? getOrdersForDate(selectedDate, orders) : [];
+
+      let html = `
+        <div class="back-header">
+          <button class="back-button" onclick="navigateTo('receptionist.html')">←</button>
+          <h1 class="page-title">📅 我的提交记录</h1>
+        </div>
+        
+        <div class="card mb-5">
+          <!-- 月份导航 -->
+          <div class="calendar-nav">
+            <button class="calendar-nav-btn" onclick="prevMonth()">←</button>
+            <h3 style="font-size: 18px;">${year}年${month + 1}月</h3>
+            <button class="calendar-nav-btn" onclick="nextMonth()">→</button>
+          </div>
+          
+          <!-- 星期标题 -->
+          <div class="calendar-grid mb-2">
+            ${['日', '一', '二', '三', '四', '五', '六'].map(d =>
+        `<div class="calendar-weekday">${d}</div>`
+      ).join('')}
+          </div>
+          
+          <!-- 日历格子 -->
+          <div class="calendar-grid">
+            ${Array.from({ length: firstDay }).map(() => '<div></div>').join('')}
+            ${Array.from({ length: daysInMonth }).map((_, i) => {
+        const day = i + 1;
+        const dayOrders = getOrdersForDate(day, orders);
+        const isToday = formatDate(new Date()) === `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const isSelected = selectedDate === day;
+        const orderTypes = [...new Set(dayOrders.map(o => o.type))].slice(0, 3);
+
+        return `
+                <button class="calendar-day ${isSelected ? 'selected' : ''} ${isToday ? 'today' : ''}"
+                        onclick="selectDate(${day})">
+                  <span style="color: ${isToday ? 'var(--accent)' : 'var(--text)'};">${day}</span>
+                  ${dayOrders.length > 0 ? `
+                    <div class="calendar-day-dots">
+                      ${orderTypes.map(type =>
+          `<div class="calendar-day-dot" style="background: ${getOrderTypeColor(type)};"></div>`
+        ).join('')}
+                    </div>
+                  ` : ''}
+                </button>
+              `;
+      }).join('')}
+          </div>
+        </div>
+        
+        ${selectedDate ? renderSelectedDateOrders(selectedOrders, month, selectedDate) : ''}
+        
+        <!-- 图例 -->
+        <div class="card">
+          <h4 style="font-size: 14px; margin-bottom: 12px; color: var(--text-muted);">图例</h4>
+          <div class="legend">
+            ${[
+          { type: 'normal', name: '正常单' },
+          { type: 'gift', name: '礼物单' },
+          { type: 'monthly', name: '月卡单' },
+          { type: 'prepaid', name: '预存单' },
+          { type: 'bonus', name: '奖金' }
+        ].map(item => `
+              <div class="legend-item">
+                <div class="legend-dot" style="background: ${getOrderTypeColor(item.type)};"></div>
+                <span>${item.name}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+
+      document.getElementById('pageContent').innerHTML = html;
+    }
+
+    function getOrdersForDate(day, orders) {
+      const year = currentDate.getFullYear();
+      const month = currentDate.getMonth();
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      return orders.filter(o => o.date === dateStr);
+    }
+
+    function renderSelectedDateOrders(orders, month, day) {
+      return `
+        <div class="card mb-5">
+          <h3 style="font-size: 16px; margin-bottom: 16px;">
+            ${month + 1}月${day}日订单
+          </h3>
+          ${orders.length === 0 ? `
+            <p class="text-muted text-center" style="padding: 20px;">
+              今日还没有提交过订单，不要忘记哦宝宝～
+            </p>
+          ` : `
+            <div class="flex flex-col gap-3">
+              ${orders.map(order => `
+                <div class="order-card" style="background: ${getOrderTypeBgColor(order.type)}; border-left: 4px solid ${getOrderTypeColor(order.type)};">
+                  <div class="order-card-header">
+                    <span class="order-card-type">${getOrderTypeName(order.type)}</span>
+                    ${order.type !== 'monthly' ? `
+                      <span class="order-card-amount">¥${order.amount}</span>
+                    ` : ''}
+                  </div>
+                  <p class="order-card-details">
+                    老板：${order.bossName} | 占卜师：${order.divinerId || '无'}
+                  </p>
+                </div>
+              `).join('')}
+              <p class="text-center" style="color: var(--success); font-size: 14px; margin-top: 8px;">
+                今日共提交 ${orders.length} 单 最棒的宝宝！
+              </p>
+            </div>
+          `}
+        </div>
+      `;
+    }
+
+    function selectDate(day) {
+      selectedDate = selectedDate === day ? null : day;
+      renderPage();
+    }
+
+    function prevMonth() {
+      currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1);
+      selectedDate = null;
+      renderPage();
+    }
+
+    function nextMonth() {
+      currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
+      selectedDate = null;
+      renderPage();
+    }
+  </script>
+</body>
+
+</html>
