@@ -123,8 +123,7 @@
           <button class="btn btn-secondary btn-full" style="justify-content: flex-start;" onclick="setView('monthlyFlow')">📈 当月接待累计流水</button>
           <button class="btn btn-secondary btn-full" style="justify-content: flex-start;" onclick="setView('taskManagement')">📋 周任务完成清单</button>
           <button class="btn btn-accent btn-full" style="justify-content: flex-start;" onclick="setView('weeklySettlement')">💵 周结算清单</button>
-          <button class="btn btn-secondary btn-full" style="justify-content: flex-start;" onclick="setView('manageReceptionists')">🔍 查找信息与补录</button>
-          <button class="btn btn-secondary btn-full" style="justify-content: flex-start;" onclick="setView('internManagement')">🎓 接待管理（实习）</button>
+          <button class="btn btn-secondary btn-full" style="justify-content: flex-start;" onclick="setView('manageReceptionists')">🔍 查找信息与补录与实习管理</button>
           <button class="btn btn-secondary btn-full" style="justify-content: flex-start;" onclick="setView('announcement')">📢 通知公告系统</button>
           <button class="btn btn-danger btn-full" style="justify-content: flex-start;" onclick="setView('penalty')">⚠️ 惩罚系统</button>
         </div>
@@ -1172,9 +1171,10 @@
     // 管理接待视图
     function renderManageReceptionists() {
       const receptionists = cachedData.receptionists.filter(r => r.role === 'receptionist' && !r.isDeleted);
+      const interns = cachedData.receptionists.filter(r => r.role === 'receptionist' && r.isIntern && !r.isDeleted);
       let html = renderHeader() + `
       <div class="card" >
-          <h2 style="font-size: 18px; margin-bottom: 24px;">🔍 查找信息与补录</h2>
+          <h2 style="font-size: 18px; margin-bottom: 24px;">🔍 查找信息与补录与实习管理</h2>
           
           <div style="margin-bottom: 20px;">
              <button class="btn btn-secondary btn-full" onclick="setView('bossList')">📖 查看老板名单</button>
@@ -1198,11 +1198,68 @@
               ${receptionists.map(r => `<option value="${r.id}">${r.emoji} ${r.name}</option>`).join('')}
             </select>
           </div>
-          <div id="manageActions" class="hidden flex flex-col gap-3 mt-4">
+          <div id="manageActions" class="hidden flex flex-col gap-3 mt-4" style="margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px dashed var(--border);">
             <button class="btn btn-primary btn-full" onclick="showAddOrderModal()">📝 补录订单</button>
             <button class="btn btn-danger btn-full" onclick="showDeleteModal()">🗑️ 删除账号</button>
           </div>
+          
+          <!-- 实习管理部分 -->
+          <div style="margin-top: 20px;">
+            <h3 style="font-size: 16px; margin-bottom: 12px;">🎓 实习管理</h3>
+            <p class="text-muted text-sm mb-3">点击下方按钮查看所有接待并管理实习状态</p>
+            <button class="btn btn-secondary btn-full" onclick="showInternModal()">📋 管理全部接待实习状态</button>
+            ${interns.length > 0 ? `
+              <div style="margin-top: 16px;">
+                <p class="text-muted text-sm mb-2">当前实习中 (${interns.length}人)：勾选可通过实习</p>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                  ${interns.map(r => `
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--bg-light); border-radius: 8px;">
+                      <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 20px;">${r.emoji}</span>
+                        <span style="font-weight: 500;">${r.name}</span>
+                        <span class="text-xs" style="color: var(--warning);">实习中</span>
+                      </div>
+                      <button class="settle-checkbox" onclick="passIntern('${r.id}')" style="width: 28px; height: 28px;">✓</button>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+            ` : ''}
+          </div>
         </div >
+        
+        <!-- 实习管理模态框 -->
+        <div id="internModal" class="modal-overlay hidden">
+          <div class="card modal-content" style="max-height: 80vh; overflow-y: auto;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+              <h3 style="margin: 0;">🎓 全部接待实习状态</h3>
+              <button onclick="closeInternModal()" style="background: none; border: none; font-size: 20px; cursor: pointer; color: var(--text-muted);">✕</button>
+            </div>
+            <p class="text-muted text-sm mb-4">点击接待可切换实习状态 | 黄色标签=实习中</p>
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              ${receptionists.map(r => {
+        const createdAt = new Date(r.createdAt);
+        const now = new Date();
+        const daysSinceRegistration = Math.floor((now - createdAt) / (1000 * 60 * 60 * 24));
+        return `
+                  <div onclick="toggleInternStatus('${r.id}')" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--bg-light); border-radius: 8px; cursor: pointer; border: 1px solid ${r.isIntern ? 'var(--warning)' : 'transparent'};">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                      <span style="font-size: 20px;">${r.emoji}</span>
+                      <div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                          <span style="font-weight: 500;">${r.name}</span>
+                          ${r.isIntern ? '<span class="text-xs" style="color: var(--warning); background: rgba(245,158,11,0.15); padding: 2px 6px; border-radius: 4px;">实习中</span>' : '<span class="text-xs" style="color: var(--success); background: rgba(16,185,129,0.15); padding: 2px 6px; border-radius: 4px;">正式</span>'}
+                        </div>
+                        <p class="text-xs text-muted" style="margin-top: 4px;">注册 ${daysSinceRegistration} 天</p>
+                      </div>
+                    </div>
+                    <span style="font-size: 12px; color: var(--text-muted);">点击切换 →</span>
+                  </div>
+                `;
+      }).join('')}
+            </div>
+          </div>
+        </div>
         <div id="addOrderModal" class="modal-overlay hidden">
           <div class="card modal-content">
             <h3 style="margin-bottom: 16px;">📝 补录订单</h3>
@@ -1471,6 +1528,31 @@
       const v = document.getElementById('manageReceptionist').value;
       document.getElementById('manageActions').classList.toggle('hidden', !v);
     }
+
+    function showInternModal() {
+      document.getElementById('internModal').classList.remove('hidden');
+    }
+
+    function closeInternModal() {
+      document.getElementById('internModal').classList.add('hidden');
+    }
+
+    async function toggleInternStatus(rid) {
+      const r = cachedData.receptionists.find(x => x.id === rid);
+      if (!r) return;
+
+      const newStatus = !r.isIntern;
+      const statusText = newStatus ? '实习中' : '正式';
+
+      if (!confirm(`确定将 ${r.name} 设置为「${statusText}」吗？`)) {
+        return;
+      }
+
+      await DataStore.updateReceptionist(rid, { isIntern: newStatus });
+      await refreshData();
+      closeInternModal();
+      renderManageReceptionists();
+    }
     function showAddOrderModal() { document.getElementById('addOrderModal').classList.remove('hidden'); }
     function closeAddOrderModal() { document.getElementById('addOrderModal').classList.add('hidden'); }
     function showDeleteModal() { document.getElementById('deleteModal').classList.remove('hidden'); }
@@ -1530,7 +1612,7 @@
     async function passIntern(rid) {
       await DataStore.updateReceptionist(rid, { isIntern: false });
       await refreshData();
-      renderInternManagement();
+      renderManageReceptionists();
     }
 
     // 惩罚系统视图
