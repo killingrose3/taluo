@@ -430,21 +430,18 @@
           let stuComm = 0;
           let divComm = 0;
           let price = o.amount || 0;
+          const typeColor = getOrderTypeColor(o.type);
 
           if (o.type === 'monthly') {
-            // 月卡单：目前逻辑是 price=0，studio=9.9
-            price = '月卡';
+            price = 0;
             stuComm = 9.9;
-            // divComm = 0;
           } else if (o.type === 'bonus') {
-            recComm = o.amount; // 全归接待
+            recComm = o.amount;
           } else if (o.type === 'prepaid') {
-            // 预存单：不计算占卜师提成
             recComm = calculateCommission(o, r);
             stuComm = calculateStudioIncomeForOrder(o);
             divComm = 0;
           } else {
-            // 其他单
             recComm = calculateCommission(o, r);
             stuComm = calculateStudioIncomeForOrder(o);
             divComm = (o.amount || 0) - recComm - stuComm;
@@ -453,16 +450,17 @@
           return {
             id: o.id,
             type: getOrderTypeName(o.type),
+            typeColor: typeColor,
             boss: o.bossName.replace(/ #\d+$/, ''),
-            price: price === '月卡' ? '月卡' : '¥' + price.toFixed(2),
-            rec: '¥' + recComm.toFixed(2),
-            stu: '¥' + stuComm.toFixed(2),
-            div: '¥' + divComm.toFixed(2)
+            price: price,
+            rec: recComm,
+            stu: stuComm,
+            div: divComm
           };
         });
 
         return `
-              <div class="list-item" onclick="toggleDailyDetail(${r.id})" style="cursor: pointer; flex-wrap: wrap;">
+              <div class="list-item" onclick="toggleDailyDetail('${r.id}')" style="cursor: pointer; flex-wrap: wrap;">
                 <div class="list-item-header" style="width: 100%;">
                   <span class="list-item-avatar">${r.emoji}</span>
                   <div class="flex-1">
@@ -480,36 +478,25 @@
                 </div>
                 
                 <!-- 详细订单列表 (默认隐藏) -->
-                <div id="dailyDetail-${r.id}" class="hidden" style="width: 100%; margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px;">
-                   <table style="width: 100%; font-size: 12px; text-align: left; border-collapse: collapse;">
-                     <thead>
-                       <tr style="color: var(--text-muted); border-bottom: 1px solid var(--border);">
-                         <th style="padding: 4px;">类型</th>
-                         <th style="padding: 4px;">老板</th>
-                         <th style="padding: 4px;">价格</th>
-                         <th style="padding: 4px;">接待</th>
-                         <th style="padding: 4px;">工作室</th>
-                         <th style="padding: 4px;">占卜师</th>
-                         <th style="padding: 4px;">操作</th>
-                       </tr>
-                     </thead>
-                     <tbody>
-                       ${orderRows.map(row => `
-                         <tr style="border-bottom: 1px solid var(--border);">
-                           <td style="padding: 6px 4px;">${row.type}</td>
-                           <td style="padding: 6px 4px;">${row.boss}</td>
-                           <td style="padding: 6px 4px;">${row.price}</td>
-                           <td style="padding: 6px 4px; color: var(--success);">${row.rec}</td>
-                           <td style="padding: 6px 4px; color: var(--accent);">${row.stu}</td>
-                           <td style="padding: 6px 4px; color: var(--primary);">${row.div}</td>
-                           <td style="padding: 6px 4px;">
-                             <button class="btn-text" style="color: var(--danger); font-size: 12px;" onclick="deleteOrder(${row.id}, event)">删除</button>
-                           </td>
-                         </tr>
-                       `).join('')}
-                       ${orderRows.length === 0 ? '<tr><td colspan="7" class="text-center text-muted" style="padding: 10px;">暂无订单</td></tr>' : ''}
-                     </tbody>
-                   </table>
+                <div id="dailyDetail-${r.id}" class="hidden" style="width: 100%; margin-top: 12px; padding-top: 12px;" onclick="event.stopPropagation()">
+                   <div style="display: flex; flex-direction: column; gap: 8px;">
+                     ${orderRows.map(row => `
+                       <div style="background: var(--bg-light); border-left: 3px solid ${row.typeColor}; border-radius: 6px; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center;">
+                         <div style="flex: 1;">
+                           <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                             <span style="color: ${row.typeColor}; font-weight: bold; font-size: 13px;">${row.type}</span>
+                             <span style="color: var(--text-muted); font-size: 12px;">老板：${row.boss}</span>
+                           </div>
+                           <div style="display: flex; gap: 12px; font-size: 12px; color: var(--text-muted);">
+                             ${row.price > 0 ? `<span>金额：<span style="color: var(--text);">¥${row.price.toFixed(0)}</span></span>` : ''}
+                             <span>工作室：<span style="color: var(--accent);">¥${row.stu.toFixed(2)}</span></span>
+                           </div>
+                         </div>
+                         <button onclick="deleteOrder(${row.id}, event)" style="background: var(--danger); color: white; border: none; border-radius: 4px; padding: 4px 10px; font-size: 11px; cursor: pointer;">删除</button>
+                       </div>
+                     `).join('')}
+                     ${orderRows.length === 0 ? '<p class="text-center text-muted" style="padding: 16px;">暂无订单</p>' : ''}
+                   </div>
                 </div>
               </div>
             `;
@@ -544,13 +531,13 @@
     }
 
     // 周结算清单视图
-    function renderWeeklySettlement() {
+    async function renderWeeklySettlement() {
       const orders = cachedData.orders;
       const receptionists = cachedData.receptionists;
       const weekStart = getWeekStart();
       const weekOrders = orders.filter(o => new Date(o.date) >= weekStart && o.approved !== false);
       const weeklyIncome = calculateTotalStudioIncome(weekOrders);
-      const settledIds = DataStore.getSettledIds();
+      const settledIds = await DataStore.getSettledIds();
       const allReceptionists = receptionists.filter(r => r.role === 'receptionist');
 
       let html = renderHeader() + `
@@ -571,8 +558,27 @@
           gift: rOrders.filter(o => o.type === 'gift').length,
           bonus: rOrders.filter(o => o.type === 'bonus').length
         };
-        const taskComplete = stats.monthly >= 3;
+
+        // 强制任务：3单月卡
+        const mandatoryTaskComplete = stats.monthly >= 3;
         const baseSalary = r.isIntern ? 20 : 40;
+
+        // 计算周流水
+        const weeklyFlow = rOrders.reduce((sum, o) => {
+          if (o.type === 'monthly') return sum + 9.9;
+          if (o.type === 'bonus') return sum;
+          return sum + (o.amount || 0);
+        }, 0);
+
+        // 计算预存总额
+        const prepaidTotal = rOrders.filter(o => o.type === 'prepaid').reduce((sum, o) => sum + (o.amount || 0), 0);
+
+        // 额外任务检查（只有完成强制任务才计算奖励）
+        const flowTaskComplete = weeklyFlow >= 500;
+        const prepaidTaskComplete = prepaidTotal >= 666;
+        const monthlyTaskComplete = stats.monthly >= 9;
+
+        // 计算单子提成
         let orderCommission = 0;
         rOrders.forEach(order => {
           if (order.type !== 'bonus' && order.type !== 'monthly') {
@@ -580,12 +586,35 @@
             orderCommission += order.amount * (rate / 100);
           }
         });
+
+        // 奖励金额（从订单中获取的bonus类型）
         const bonusAmount = rOrders.filter(o => o.type === 'bonus').reduce((sum, o) => sum + o.amount, 0);
+
+        // 惩罚金额
         const weeklyPenalties = (r.penalties || []).filter(p => new Date(p.date) >= weekStart);
         const penaltyAmount = weeklyPenalties.reduce((sum, p) => sum + p.amount, 0);
-        // 如果周任务未完成，不结算底薪，但提成和奖励正常结算
-        const actualBaseSalary = taskComplete ? baseSalary : 0;
-        const totalSalary = Math.max(0, actualBaseSalary + orderCommission + bonusAmount - penaltyAmount);
+
+        // 额外任务奖励（只有完成强制任务才计算）
+        let extraBonus = 0;
+        let extraBonusDetails = [];
+        if (mandatoryTaskComplete) {
+          if (flowTaskComplete) {
+            extraBonus += 15;
+            extraBonusDetails.push('周流水500+');
+          }
+          if (prepaidTaskComplete) {
+            extraBonus += 15;
+            extraBonusDetails.push('预存666+');
+          }
+          if (monthlyTaskComplete) {
+            extraBonus += 15;
+            extraBonusDetails.push('月卡9单+');
+          }
+        }
+
+        // 如果强制任务未完成，不结算底薪，但提成和奖励正常结算
+        const actualBaseSalary = mandatoryTaskComplete ? baseSalary : 0;
+        const totalSalary = Math.max(0, actualBaseSalary + orderCommission + bonusAmount + extraBonus - penaltyAmount);
         const isSettled = settledIds.includes(r.id);
 
         return `
@@ -610,14 +639,34 @@
                   <span class="order-type-gift">礼物 ${stats.gift}</span>
                   <span class="order-type-bonus">奖励 ${stats.bonus}</span>
                 </div>
+                
+                <!-- 任务完成状态 -->
+                <div style="margin-bottom: 12px; padding: 8px; background: var(--bg-light); border-radius: 8px; font-size: 12px;">
+                  <div style="margin-bottom: 4px; font-weight: bold; color: ${mandatoryTaskComplete ? 'var(--success)' : 'var(--danger)'};">
+                    ${mandatoryTaskComplete ? '✓' : '✗'} 强制任务：月卡3单 (${stats.monthly}/3)
+                  </div>
+                  <div style="display: flex; flex-wrap: wrap; gap: 8px; color: var(--text-muted);">
+                    <span style="color: ${mandatoryTaskComplete && flowTaskComplete ? 'var(--success)' : 'var(--text-muted)'};">
+                      ${mandatoryTaskComplete && flowTaskComplete ? '✓' : '○'} 周流水500 (¥${weeklyFlow.toFixed(0)})
+                    </span>
+                    <span style="color: ${mandatoryTaskComplete && prepaidTaskComplete ? 'var(--success)' : 'var(--text-muted)'};">
+                      ${mandatoryTaskComplete && prepaidTaskComplete ? '✓' : '○'} 预存666 (¥${prepaidTotal.toFixed(0)})
+                    </span>
+                    <span style="color: ${mandatoryTaskComplete && monthlyTaskComplete ? 'var(--success)' : 'var(--text-muted)'};">
+                      ${mandatoryTaskComplete && monthlyTaskComplete ? '✓' : '○'} 月卡9单 (${stats.monthly}/9)
+                    </span>
+                  </div>
+                </div>
+                
                 <div class="salary-detail">
-                  <div class="salary-row"><span class="text-muted">底薪：</span><span ${!taskComplete ? 'style="color: var(--danger);"' : ''}>¥${actualBaseSalary}${!taskComplete ? ' <span style="font-size: 12px; text-decoration: line-through; opacity: 0.5;">(' + baseSalary + ')</span>' : ''}</span></div>
+                  <div class="salary-row"><span class="text-muted">底薪：</span><span ${!mandatoryTaskComplete ? 'style="color: var(--danger);"' : ''}>${mandatoryTaskComplete ? '¥' + actualBaseSalary : '¥0 <span style="font-size: 12px; text-decoration: line-through; opacity: 0.5;">(' + baseSalary + ')</span>'}</span></div>
                   <div class="salary-row"><span class="text-muted">单子提成：</span><span style="color: var(--accent);">¥${orderCommission.toFixed(2)}</span></div>
+                  <div class="salary-row"><span class="text-muted">订单奖励：</span><span style="color: ${bonusAmount > 0 ? 'var(--bonus)' : 'var(--text)'};">¥${bonusAmount.toFixed(2)}</span></div>
+                  ${extraBonus > 0 ? `<div class="salary-row"><span class="text-muted">任务奖励：</span><span style="color: var(--success);">+¥${extraBonus} (${extraBonusDetails.join(', ')})</span></div>` : ''}
                   <div class="salary-row"><span class="text-muted">惩罚项：</span><span style="color: ${penaltyAmount > 0 ? 'var(--danger)' : 'var(--text)'};">${penaltyAmount > 0 ? '-' : ''}¥${penaltyAmount.toFixed(2)}</span></div>
-                  <div class="salary-row"><span class="text-muted">奖励：</span><span style="color: ${bonusAmount > 0 ? 'var(--bonus)' : 'var(--text)'};">¥${bonusAmount.toFixed(2)}</span></div>
                   <div class="salary-total">
                     <span>总共结算工资：</span>
-                    <span style="color: ${taskComplete ? 'var(--accent)' : 'var(--danger)'};">¥${totalSalary.toFixed(2)}${!taskComplete ? ' (未完成任务)' : ''}</span>
+                    <span style="color: var(--accent);">¥${totalSalary.toFixed(2)}${!mandatoryTaskComplete ? ' (未完成强制任务)' : ''}</span>
                   </div>
                 </div>
                 ${isSettled ? '<p class="text-center text-xs mt-2" style="color: var(--success);">✓ 已结算</p>' : ''}
@@ -892,7 +941,7 @@
             ${sorted.map(r => {
         const stats = getStats(r.id);
         return `
-                 <div onclick="setView('monthlyFlowDetail', { id: ${r.id}, name: '${r.name}' })" style="background: var(--bg-light); padding: 16px; border-radius: 12px; border: 1px solid var(--border); cursor: pointer;">
+                 <div onclick="setView('monthlyFlowDetail', { id: '${r.id}', name: '${r.name}' })" style="background: var(--bg-light); padding: 16px; border-radius: 12px; border: 1px solid var(--border); cursor: pointer;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                        <span style="font-weight: bold; font-size: 16px;">${r.emoji} ${r.name} <span style="font-size: 12px; color: var(--text-muted); margin-left: 4px;">点击查看 ▶</span></span>
                     </div>
@@ -936,7 +985,8 @@
       if (r.id === 'all') {
         orders = cachedData.orders.filter(o => o.approved !== false);
       } else {
-        orders = cachedData.orders.filter(o => o.receptionistId === r.id && o.approved !== false);
+        const targetId = String(r.id);
+        orders = cachedData.orders.filter(o => String(o.receptionistId) === targetId && o.approved !== false);
       }
 
       let selectedOrders = selectedDetailDate ? getOrdersForDate(selectedDetailDate, orders, year, month) : [];
@@ -1020,6 +1070,18 @@
                     `;
           }).join('');
         })()}
+             </div>
+          </div>
+          
+          <!-- 图例 -->
+          <div class="card" style="margin-top: 16px; padding: 16px;">
+             <h3 style="font-size: 14px; margin-bottom: 12px; color: var(--text);">图例</h3>
+             <div style="display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px;">
+                <span style="display: flex; align-items: center; gap: 6px; color: #3b82f6;"><span style="width: 10px; height: 10px; border-radius: 50%; background: #3b82f6;"></span> 正常单</span>
+                <span style="display: flex; align-items: center; gap: 6px; color: #ec4899;"><span style="width: 10px; height: 10px; border-radius: 50%; background: #ec4899;"></span> 礼物单</span>
+                <span style="display: flex; align-items: center; gap: 6px; color: #10b981;"><span style="width: 10px; height: 10px; border-radius: 50%; background: #10b981;"></span> 月卡单</span>
+                <span style="display: flex; align-items: center; gap: 6px; color: #f59e0b;"><span style="width: 10px; height: 10px; border-radius: 50%; background: #f59e0b;"></span> 预存单</span>
+                <span style="display: flex; align-items: center; gap: 6px; color: #ffd700;"><span style="width: 10px; height: 10px; border-radius: 50%; background: #ffd700;"></span> 奖金</span>
              </div>
           </div>
           
@@ -1144,7 +1206,7 @@
         <div id="addOrderModal" class="modal-overlay hidden">
           <div class="card modal-content">
             <h3 style="margin-bottom: 16px;">📝 补录订单</h3>
-            <form id="addOrderForm">
+            <form id="addOrderForm" onsubmit="handleAddOrder(event)">
               <div class="form-group"><label class="form-label">日期</label><input type="date" id="addOrderDate" class="form-input" value="${getToday()}" required></div>
               <div class="form-group"><label class="form-label">老板名称</label><input type="text" id="addOrderBoss" class="form-input" required></div>
               <div class="form-group"><label class="form-label">单子类型</label>
@@ -1190,10 +1252,14 @@
         }
 
         const orders = cachedData.orders;
+        const receptionists = cachedData.receptionists;
+        let resultsHtml = '';
+        let hasMatch = false;
 
         // 1. 检查是否匹配老板名字
         const allBossNames = [...new Set(orders.map(o => o.bossName))];
         if (allBossNames.includes(input)) {
+          hasMatch = true;
           const bossOrders = orders.filter(o => o.bossName === input);
           const normalCount = bossOrders.filter(o => o.type === 'normal').length;
           const monthlyCount = bossOrders.filter(o => o.type === 'monthly').length;
@@ -1206,10 +1272,10 @@
               return sum;
             }, 0);
 
-          container.innerHTML = `
-      <div onclick = "setView('bossDetail', { name: '${input}' })" style = "background: transparent; border: 1px solid var(--border); padding: 16px; border-radius: 12px; cursor: pointer; transition: transform 0.2s;" >
+          resultsHtml += `
+      <div onclick = "setView('bossDetail', { name: '${input}' })" style = "background: transparent; border: 1px solid var(--border); padding: 16px; border-radius: 12px; cursor: pointer; transition: transform 0.2s; margin-bottom: 12px;" >
                <div style="margin-bottom: 12px;">
-                 <h3 style="font-size: 18px; font-weight: bold; margin-bottom: 8px; color: var(--text);">老板：${input}</h3>
+                 <h3 style="font-size: 18px; font-weight: bold; margin-bottom: 8px; color: var(--text);">🐯 老板：${input}</h3>
                  <p style="font-size: 14px; color: var(--text-muted);">共消费：正常单 ${normalCount} 单，月卡 ${monthlyCount} 单</p>
                  <p style="font-size: 14px; color: var(--text-muted);">余额：<span style="font-weight: bold; color: var(--accent); font-size: 16px;">¥${balance.toFixed(0)}</span></p>
                  <p style="font-size: 14px; color: var(--text-muted);">累计消费：¥${totalConsumption.toFixed(0)} <span style="font-size: 12px; opacity: 0.8;">（正常单，月卡，预存，礼物）</span></p>
@@ -1219,14 +1285,12 @@
                </div>
              </div >
       `;
-          container.classList.remove('hidden');
-          return;
         }
 
         // 2. 检查是否匹配接待名字
-        const receptionists = cachedData.receptionists;
         const matchedReceptionist = receptionists.find(r => r.name === input);
         if (matchedReceptionist) {
+          hasMatch = true;
           const rOrders = orders.filter(o => o.receptionistId === matchedReceptionist.id);
           const totalAmount = rOrders.reduce((sum, o) => {
             if (o.type === 'monthly') return sum + 9.9;
@@ -1234,8 +1298,8 @@
             return sum;
           }, 0);
 
-          container.innerHTML = `
-      <div onclick = "setView('receptionistDetail', { id: ${matchedReceptionist.id} })" style = "background: transparent; border: 1px solid var(--border); padding: 16px; border-radius: 12px; cursor: pointer; transition: transform 0.2s;" >
+          resultsHtml += `
+      <div onclick = "setView('receptionistDetail', { id: '${matchedReceptionist.id}' })" style = "background: transparent; border: 1px solid var(--border); padding: 16px; border-radius: 12px; cursor: pointer; transition: transform 0.2s; margin-bottom: 12px;" >
                <div style="margin-bottom: 12px;">
                  <h3 style="font-size: 18px; font-weight: bold; margin-bottom: 8px; color: var(--text);">👤 接待：${matchedReceptionist.name}</h3>
                  <p style="font-size: 14px; color: var(--text-muted);">累计接单：${rOrders.length} 单</p>
@@ -1246,31 +1310,22 @@
                </div>
              </div >
       `;
-          container.classList.remove('hidden');
-          return;
         }
 
         // 3. 检查是否匹配占卜师名字
         const allDiviners = [...new Set(orders.map(o => o.divinerId).filter(d => d && d !== '无'))];
         if (allDiviners.includes(input)) {
+          hasMatch = true;
           const dOrders = orders.filter(o => o.divinerId === input);
 
-          // 计算总收入：(总流水 x 提成) 的逻辑其实是 扣除接待和工作室后的剩余
-          const receptionists = cachedData.receptionists;
           const totalIncome = dOrders.reduce((sum, o) => {
             if (o.type === 'monthly' || o.type === 'prepaid' || o.type === 'bonus') return sum;
 
             const amount = o.amount || 0;
             if (o.type === 'deduct_prepaid') {
-              // 扣除预存：工作室和接待对于 deduct_prepaid 提成/收入为 0，所以占卜师拿全部?
-              // 逻辑参考 Audit View: deduct_prepaid 不在 if/else if 中，进入 else
-              // 但 calculateCommission('deduct_prepaid') 返回 0
-              // calculateStudioIncomeForOrder('deduct_prepaid') 返回 0
-              // 所以 divComm = price - 0 - 0 = price
               return sum + amount;
             }
 
-            // 正常单/礼物单
             const rec = receptionists.find(r => r.id === o.receptionistId) || { commissionRate: 5 };
             const recComm = calculateCommission(o, rec);
             const stuComm = calculateStudioIncomeForOrder(o);
@@ -1278,8 +1333,8 @@
             return sum + divComm;
           }, 0);
 
-          container.innerHTML = `
-      <div onclick = "setView('divinerDetail', { name: '${input}' })" style = "background: transparent; border: 1px solid var(--border); padding: 16px; border-radius: 12px; cursor: pointer; transition: transform 0.2s;" >
+          resultsHtml += `
+      <div onclick = "setView('divinerDetail', { name: '${input}' })" style = "background: transparent; border: 1px solid var(--border); padding: 16px; border-radius: 12px; cursor: pointer; transition: transform 0.2s; margin-bottom: 12px;" >
                <div style="margin-bottom: 12px;">
                  <h3 style="font-size: 18px; font-weight: bold; margin-bottom: 8px; color: var(--text);">🔮 占卜师：${input}</h3>
                  <p style="font-size: 14px; color: var(--text-muted);">累计占卜：${dOrders.length} 单</p>
@@ -1290,6 +1345,11 @@
                </div>
              </div >
       `;
+        }
+
+        // 如果有匹配的名片，显示它们
+        if (hasMatch) {
+          container.innerHTML = resultsHtml;
           container.classList.remove('hidden');
           return;
         }
@@ -1341,43 +1401,57 @@
 
         container.classList.remove('hidden');
       }
+    }
 
-      document.getElementById('addOrderForm').addEventListener('submit', function (e) {
-        e.preventDefault();
-        const rid = parseInt(document.getElementById('manageReceptionist').value);
-        const type = document.getElementById('addOrderType').value;
-        const orders = cachedData.orders;
-        const date = document.getElementById('addOrderDate').value;
-        const bossName = document.getElementById('addOrderBoss').value;
+    async function handleAddOrder(e) {
+      e.preventDefault();
+      const rid = document.getElementById('manageReceptionist').value;
+      const type = document.getElementById('addOrderType').value;
+      const date = document.getElementById('addOrderDate').value;
+      const bossName = document.getElementById('addOrderBoss').value;
 
+      if (!rid) {
+        alert('请先选择接待');
+        return;
+      }
+
+      try {
         if (type === 'monthly') {
           // 月卡单：根据数量批量创建
           const count = parseInt(document.getElementById('addOrderCount').value) || 1;
           for (let i = 0; i < count; i++) {
-            orders.push({
-              id: Date.now() + i, receptionistId: rid, date: date,
-              bossName: bossName, type: 'monthly',
-              divinerId: '无', amount: 0,
-              createdAt: new Date().toISOString(), approved: true
+            await DataStore.saveOrder({
+              receptionistId: rid,
+              date: date,
+              bossName: bossName + (count > 1 ? ` #${i + 1}` : ''),
+              type: 'monthly',
+              divinerId: '无',
+              amount: 0,
+              approved: true
             });
           }
-          DataStore.saveOrders(orders);
+          await refreshData();
           closeAddOrderModal();
           alert('补录成功！共添加 ' + count + ' 个月卡单');
         } else {
           // 其他类型：单个创建
-          orders.push({
-            id: Date.now(), receptionistId: rid, date: date,
-            bossName: bossName, type: type,
+          await DataStore.saveOrder({
+            receptionistId: rid,
+            date: date,
+            bossName: bossName,
+            type: type,
             divinerId: type === 'prepaid' ? '无' : '',
             amount: parseFloat(document.getElementById('addOrderAmount').value) || 0,
-            createdAt: new Date().toISOString(), approved: true
+            approved: true
           });
-          DataStore.saveOrders(orders);
+          await refreshData();
           closeAddOrderModal();
           alert('补录成功！');
         }
-      });
+      } catch (err) {
+        console.error('补录订单失败:', err);
+        alert('补录失败，请检查网络连接后重试');
+      }
     }
 
     function onAddOrderTypeChange() {
@@ -1611,8 +1685,9 @@
       }
 
       const receptionists = cachedData.receptionists;
-      const r = receptionists.find(rec => rec.id === data.id) || { name: '未知', emoji: '👤' };
-      const orders = cachedData.orders.filter(o => o.receptionistId === data.id);
+      const targetId = String(data.id);
+      const r = receptionists.find(rec => String(rec.id) === targetId) || { name: '未知', emoji: '👤' };
+      const orders = cachedData.orders.filter(o => String(o.receptionistId) === targetId);
 
       // 按时间倒序
       orders.sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -1652,7 +1727,10 @@
 
             return `
                    <div style="background: var(--bg-light); padding: 12px; border-radius: 8px; border-left: 4px solid ${typeColor}; font-size: 14px; line-height: 1.6;">
-                      <p><span style="font-weight: bold;">日期：</span>${formatDate(o.date)}</p>
+                      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                        <p style="margin: 0;"><span style="font-weight: bold;">日期：</span>${formatDate(o.date)}</p>
+                        <button onclick="deleteReceptionistOrder(${o.id}, '${targetId}')" style="background: var(--danger); color: white; border: none; border-radius: 4px; padding: 4px 10px; font-size: 12px; cursor: pointer;">删除</button>
+                      </div>
                       <p><span style="font-weight: bold;">老板：</span>${o.bossName}</p>
                       <p><span style="font-weight: bold;">单子类型：</span>${typeName}</p>
                       <p><span style="font-weight: bold;">金额：</span>¥${o.amount}</p>
@@ -1666,6 +1744,14 @@
         </div >
       `;
       document.getElementById('pageContent').innerHTML = html;
+    }
+
+    async function deleteReceptionistOrder(orderId, receptionistId) {
+      if (!confirm('确定要删除这条订单吗？')) return;
+
+      await DataStore.deleteOrder(orderId);
+      await refreshData();
+      renderReceptionistDetail({ id: receptionistId });
     }
 
     // 占卜师详细记录视图
@@ -1731,7 +1817,10 @@
 
             return `
                    <div style="background: var(--bg-light); padding: 12px; border-radius: 8px; border-left: 4px solid ${typeColor}; font-size: 14px; line-height: 1.6;">
-                      <p><span style="font-weight: bold;">日期：</span>${formatDate(o.date)}</p>
+                      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                        <p style="margin: 0;"><span style="font-weight: bold;">日期：</span>${formatDate(o.date)}</p>
+                        <button onclick="deleteDivinerOrder(${o.id}, '${divinerName}')" style="background: var(--danger); color: white; border: none; border-radius: 4px; padding: 4px 10px; font-size: 12px; cursor: pointer;">删除</button>
+                      </div>
                       <p><span style="font-weight: bold;">老板：</span>${o.bossName}</p>
                       <p><span style="font-weight: bold;">单子类型：</span>${typeName}</p>
                       <p><span style="font-weight: bold;">金额：</span>¥${o.amount}</p>
@@ -1745,6 +1834,14 @@
         </div >
       `;
       document.getElementById('pageContent').innerHTML = html;
+    }
+
+    async function deleteDivinerOrder(orderId, divinerName) {
+      if (!confirm('确定要删除这条订单吗？')) return;
+
+      await DataStore.deleteOrder(orderId);
+      await refreshData();
+      renderDivinerDetail({ name: divinerName });
     }
 
     // 老板详细记录视图
@@ -1803,7 +1900,10 @@
                    <div style="background: var(--bg-light); padding: 16px; border-radius: 12px; border-left: 4px solid ${typeColor}; position: relative;">
                       <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
                          <span style="font-weight: bold; font-size: 16px;">${typeName}</span>
-                         <span style="font-size: 14px; color: var(--text-muted);">${formatDate(o.date)}</span>
+                         <div style="display: flex; align-items: center; gap: 8px;">
+                           <span style="font-size: 14px; color: var(--text-muted);">${formatDate(o.date)}</span>
+                           <button onclick="deleteBossOrder(${o.id}, '${bossName}')" style="background: var(--danger); color: white; border: none; border-radius: 4px; padding: 4px 10px; font-size: 12px; cursor: pointer;">删除</button>
+                         </div>
                       </div>
                       
                       <div style="font-size: 14px; color: var(--text-muted); line-height: 1.6; margin-bottom: 8px;">
@@ -1826,6 +1926,14 @@
       `;
 
       document.getElementById('pageContent').innerHTML = html;
+    }
+
+    async function deleteBossOrder(orderId, bossName) {
+      if (!confirm('确定要删除这条订单吗？')) return;
+
+      await DataStore.deleteOrder(orderId);
+      await refreshData();
+      renderBossDetail({ name: bossName });
     }
 
   </script>
