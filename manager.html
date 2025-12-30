@@ -42,10 +42,10 @@
 
     async function loadAllData() {
       const [orders, receptionists, penalties, announcements] = await Promise.all([
-        cachedData.orders,
-        cachedData.receptionists,
+        DataStore.getOrders(),
+        DataStore.getReceptionists(),
         DataStore.getPenalties(),
-        cachedData.announcements
+        DataStore.getAnnouncements()
       ]);
       cachedData = { orders, receptionists, penalties, announcements };
     }
@@ -583,7 +583,9 @@
         const bonusAmount = rOrders.filter(o => o.type === 'bonus').reduce((sum, o) => sum + o.amount, 0);
         const weeklyPenalties = (r.penalties || []).filter(p => new Date(p.date) >= weekStart);
         const penaltyAmount = weeklyPenalties.reduce((sum, p) => sum + p.amount, 0);
-        const totalSalary = taskComplete ? Math.max(0, baseSalary + orderCommission + bonusAmount - penaltyAmount) : 0;
+        // 如果周任务未完成，不结算底薪，但提成和奖励正常结算
+        const actualBaseSalary = taskComplete ? baseSalary : 0;
+        const totalSalary = Math.max(0, actualBaseSalary + orderCommission + bonusAmount - penaltyAmount);
         const isSettled = settledIds.includes(r.id);
 
         return `
@@ -609,7 +611,7 @@
                   <span class="order-type-bonus">奖励 ${stats.bonus}</span>
                 </div>
                 <div class="salary-detail">
-                  <div class="salary-row"><span class="text-muted">底薪：</span><span>¥${baseSalary}</span></div>
+                  <div class="salary-row"><span class="text-muted">底薪：</span><span ${!taskComplete ? 'style="color: var(--danger);"' : ''}>¥${actualBaseSalary}${!taskComplete ? ' <span style="font-size: 12px; text-decoration: line-through; opacity: 0.5;">(' + baseSalary + ')</span>' : ''}</span></div>
                   <div class="salary-row"><span class="text-muted">单子提成：</span><span style="color: var(--accent);">¥${orderCommission.toFixed(2)}</span></div>
                   <div class="salary-row"><span class="text-muted">惩罚项：</span><span style="color: ${penaltyAmount > 0 ? 'var(--danger)' : 'var(--text)'};">${penaltyAmount > 0 ? '-' : ''}¥${penaltyAmount.toFixed(2)}</span></div>
                   <div class="salary-row"><span class="text-muted">奖励：</span><span style="color: ${bonusAmount > 0 ? 'var(--bonus)' : 'var(--text)'};">¥${bonusAmount.toFixed(2)}</span></div>
@@ -1317,7 +1319,10 @@
       <div style = "background: var(--bg-card); border: 1px solid var(--border); padding: 8px; border-radius: 6px; margin-bottom: 8px;" >
                   <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
                      <span style="font-weight: bold;">老板：${o.bossName}</span>
-                     <span style="color: ${typeColor}; background: ${typeColor}15; padding: 1px 4px; border-radius: 4px;">${typeName}</span>
+                     <div style="display: flex; align-items: center; gap: 8px;">
+                       <span style="color: ${typeColor}; background: ${typeColor}15; padding: 1px 4px; border-radius: 4px;">${typeName}</span>
+                       <button onclick="deleteSearchOrder(${o.id})" style="background: var(--danger); color: white; border: none; border-radius: 4px; padding: 2px 8px; font-size: 11px; cursor: pointer;">删除</button>
+                     </div>
                   </div>
                   <div style="font-size: 12px; color: var(--text-muted); display: flex; flex-direction: column; gap: 2px;">
                      <p>日期: ${formatDate(o.date)} | 接待: ${rName}</p>
@@ -1396,17 +1401,34 @@
     function closeAddOrderModal() { document.getElementById('addOrderModal').classList.add('hidden'); }
     function showDeleteModal() { document.getElementById('deleteModal').classList.remove('hidden'); }
     function closeDeleteModal() { document.getElementById('deleteModal').classList.add('hidden'); }
-    function deleteAccount(keepOrders) {
-      const rid = parseInt(document.getElementById('manageReceptionist').value);
-      const receptionists = cachedData.receptionists;
-      if (keepOrders) {
-        DataStore.saveReceptionists(receptionists.map(r => r.id === rid ? { ...r, isDeleted: true } : r));
-      } else {
-        DataStore.saveReceptionists(receptionists.filter(r => r.id !== rid));
-        DataStore.saveOrders(cachedData.orders.filter(o => o.receptionistId !== rid));
+
+    async function deleteSearchOrder(orderId) {
+      if (!confirm('确定要删除这条订单吗？')) return;
+
+      await DataStore.deleteOrder(orderId);
+      await refreshData();
+
+      // 重新触发搜索以刷新结果
+      const searchInput = document.getElementById('manageOrderSearchInput');
+      if (searchInput && searchInput.value.trim()) {
+        document.getElementById('manageOrderSearchBtn').click();
       }
-      closeDeleteModal();
-      renderManageReceptionists();
+    }
+    async function deleteAccount(keepOrders) {
+      const rid = document.getElementById('manageReceptionist').value;
+      if (!rid) {
+        alert('请先选择接待');
+        return;
+      }
+
+      const success = await DataStore.deleteReceptionist(rid, keepOrders);
+      if (success) {
+        closeDeleteModal();
+        await refreshData();
+        renderManageReceptionists();
+      } else {
+        alert('删除失败，请重试');
+      }
     }
 
     // 实习管理视图

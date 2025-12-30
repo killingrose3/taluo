@@ -94,7 +94,13 @@ function calculateCommission(order, receptionist) {
 }
 
 // 计算工作室收入（新计费规则）
+// 特殊规则：当占卜师为"虎虎"时，工作室收入为0（虎虎拿剩余金额）
 function calculateStudioIncomeForOrder(order) {
+  // 虎虎接单时工作室不收取费用
+  if (order.divinerId === '虎虎') {
+    return 0;
+  }
+  
   switch (order.type) {
     case 'normal': return order.amount * 0.25;
     case 'gift': return order.amount * 0.10;
