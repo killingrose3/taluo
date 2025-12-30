@@ -8,7 +8,9 @@
   <meta name="description" content="Nyx Studio 管理者后台">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,500;1,400&display=swap"
+    rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
   <!-- Supabase JS -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -945,19 +947,18 @@
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                        <span style="font-weight: bold; font-size: 16px;">${r.emoji} ${r.name} ${r.isIntern ? '<span style="font-size: 12px; color: var(--warning); margin-left: 4px;">实习中</span>' : ''} <span style="font-size: 12px; color: var(--text-muted); margin-left: 4px;">点击查看 ▶</span></span>
                     </div>
-                    </div>
                     <div style="margin-bottom: 12px;">
-                   <p class="text-muted" style="font-size: 12px; margin-bottom: 2px;">总流水：</p>
-                   <p style="font-size: 20px; font-weight: bold; color: var(--text);">¥${stats.totalAmount.toFixed(2)}</p>
-                </div>
-                <div style="font-size: 13px; display: flex; gap: 8px; flex-wrap: wrap;">
-                   <span style="color: #10b981;">月卡 ${stats.monthly}</span>
-                   <span style="color: #3b82f6;">正常 ${stats.normal}</span>
-                   <span style="color: #f59e0b;">预存 ${stats.prepaid}</span>
-                   <span style="color: #ec4899;">礼物 ${stats.gift}</span>
-                   <span style="color: #ffd700;">奖励 ${stats.bonus}</span>
-                </div>
-             </div>
+                       <p class="text-muted" style="font-size: 12px; margin-bottom: 2px;">总流水：</p>
+                       <p style="font-size: 20px; font-weight: bold; color: var(--text);">¥${stats.totalAmount.toFixed(2)}</p>
+                    </div>
+                    <div style="font-size: 13px; display: flex; gap: 8px; flex-wrap: wrap;">
+                       <span style="color: #10b981;">月卡 ${stats.monthly}</span>
+                       <span style="color: #3b82f6;">正常 ${stats.normal}</span>
+                       <span style="color: #f59e0b;">预存 ${stats.prepaid}</span>
+                       <span style="color: #ec4899;">礼物 ${stats.gift}</span>
+                       <span style="color: #ffd700;">奖励 ${stats.bonus}</span>
+                    </div>
+                 </div>
            `;
       }).join('')}
           </div>
