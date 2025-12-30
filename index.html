@@ -40,17 +40,20 @@
         }
 
         .login-card {
-            background-color: rgba(255, 255, 255, 0.92);
+            background-color: rgba(255, 255, 255, 0.65);
             background-image: url('bg-floral.jpg');
             background-size: cover;
             background-position: center;
-            background-blend-mode: overlay;
-            backdrop-filter: blur(8px);
-            -webkit-backdrop-filter: blur(8px);
+            background-blend-mode: lighten;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
             border-radius: 20px;
             padding: 40px 32px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-            border: 1px solid rgba(180, 160, 180, 0.25);
+            box-shadow:
+                0 4px 15px rgba(0, 0, 0, 0.08),
+                0 8px 30px rgba(150, 130, 150, 0.12),
+                inset 0 1px 0 rgba(255, 255, 255, 0.5);
+            border: 2px solid rgba(180, 160, 180, 0.4);
         }
 
         /* Logo 部分 */
