@@ -464,6 +464,7 @@
                   <span class="list-item-avatar">${r.emoji}</span>
                   <div class="flex-1">
                     <span class="font-bold">${r.name}</span>
+                    ${r.isIntern ? '<span class="text-xs" style="color: var(--warning); margin-left: 8px;">实习中</span>' : ''}
                     ${r.isDeleted ? '<span class="text-xs" style="color: var(--danger);"> (已注销)</span>' : ''}
                   </div>
                   <span style="color: var(--accent);">共 ${stats.total} 单 <span style="font-size: 12px;">▼</span></span>
