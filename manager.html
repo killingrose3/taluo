@@ -943,7 +943,8 @@
         return `
                  <div onclick="setView('monthlyFlowDetail', { id: '${r.id}', name: '${r.name}' })" style="background: var(--bg-light); padding: 16px; border-radius: 12px; border: 1px solid var(--border); cursor: pointer;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                       <span style="font-weight: bold; font-size: 16px;">${r.emoji} ${r.name} <span style="font-size: 12px; color: var(--text-muted); margin-left: 4px;">点击查看 ▶</span></span>
+                       <span style="font-weight: bold; font-size: 16px;">${r.emoji} ${r.name} ${r.isIntern ? '<span style="font-size: 12px; color: var(--warning); margin-left: 4px;">实习中</span>' : ''} <span style="font-size: 12px; color: var(--text-muted); margin-left: 4px;">点击查看 ▶</span></span>
+                    </div>
                     </div>
                     <div style="margin-bottom: 12px;">
                    <p class="text-muted" style="font-size: 12px; margin-bottom: 2px;">总流水：</p>
