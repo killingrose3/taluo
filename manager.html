@@ -339,7 +339,11 @@
                     ` : `
                        <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
                         <span class="text-muted">单子价格：</span>
-                        <span style="color: var(--warning); font-weight: 600;">¥${price.toFixed(0)}</span>
+                        ${order.discount ? `
+                          <span style="color: #ec4899; font-weight: 600;">¥${price.toFixed(0)} <span style="font-size: 12px; opacity: 0.8;">(${order.discount}折 原价¥${order.originalAmount})</span></span>
+                        ` : `
+                          <span style="color: var(--warning); font-weight: 600;">¥${price.toFixed(0)}</span>
+                        `}
                       </div>
                       <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
                         <span class="text-muted">接待提成：</span>

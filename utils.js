@@ -100,7 +100,7 @@ function calculateStudioIncomeForOrder(order) {
   if (order.divinerId === '虎虎') {
     return 0;
   }
-  
+
   switch (order.type) {
     case 'normal': return order.amount * 0.25;
     case 'gift': return order.amount * 0.10;
@@ -294,6 +294,8 @@ const DataStore = {
       divinerId: o.diviner_id,
       type: o.type,
       amount: parseFloat(o.amount) || 0,
+      originalAmount: o.original_amount ? parseFloat(o.original_amount) : null,
+      discount: o.discount ? parseFloat(o.discount) : null,
       questionContent: o.question_content,
       bonusType: o.bonus_type,
       approved: o.approved,
@@ -315,6 +317,12 @@ const DataStore = {
       approved: order.approved !== undefined ? order.approved : false,
       date: order.date
     };
+
+    // 只在有折扣时添加折扣字段（避免数据库列不存在时报错）
+    if (order.discount) {
+      dbData.original_amount = order.originalAmount;
+      dbData.discount = order.discount;
+    }
 
     const { data, error } = await supabaseClient
       .from('orders')

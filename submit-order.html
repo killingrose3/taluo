@@ -107,6 +107,18 @@
               <p class="form-hint" id="amountHint">允许金额：${allowedNormalAmounts.slice().sort((a, b) => a - b).join('、')}</p>
             </div>
             
+            <div class="form-group hidden" id="discountGroup">
+              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                <input type="checkbox" id="hasDiscount" style="width: 18px; height: 18px; accent-color: var(--accent);" onchange="onDiscountToggle()">
+                <label for="hasDiscount" style="cursor: pointer; font-size: 14px;">有折扣</label>
+              </div>
+              <div id="discountInputWrapper" class="hidden" style="display: flex; align-items: center; gap: 8px;">
+                <input type="number" id="discountValue" class="form-input" placeholder="如：9、8.5、8" step="0.1" min="1" max="9.9" style="width: 100px;">
+                <span style="font-size: 14px; color: var(--text-muted);">折</span>
+                <span id="discountPreview" style="font-size: 12px; color: var(--accent); margin-left: 10px;"></span>
+              </div>
+            </div>
+            
             <div class="form-group hidden" id="monthlyAmountGroup">
               <label class="form-label">金额</label>
               <div class="form-input form-input-readonly">无</div>
@@ -170,6 +182,51 @@
                 } else {
                     amountHint.style.display = 'none';
                 }
+            }
+
+            // 折扣选项只在正常单时显示
+            const discountGroup = document.getElementById('discountGroup');
+            if (isNormal) {
+                discountGroup.classList.remove('hidden');
+            } else {
+                discountGroup.classList.add('hidden');
+                document.getElementById('hasDiscount').checked = false;
+                document.getElementById('discountInputWrapper').classList.add('hidden');
+            }
+        }
+
+        // 折扣开关切换
+        function onDiscountToggle() {
+            const hasDiscount = document.getElementById('hasDiscount').checked;
+            const wrapper = document.getElementById('discountInputWrapper');
+            if (hasDiscount) {
+                wrapper.classList.remove('hidden');
+                wrapper.style.display = 'flex';
+            } else {
+                wrapper.classList.add('hidden');
+                wrapper.style.display = 'none';
+                document.getElementById('discountValue').value = '';
+                document.getElementById('discountPreview').textContent = '';
+            }
+        }
+
+        // 金额输入时更新折扣预览
+        document.getElementById('pageContent').addEventListener('input', function (e) {
+            if (e.target.id === 'amount' || e.target.id === 'discountValue') {
+                updateDiscountPreview();
+            }
+        });
+
+        function updateDiscountPreview() {
+            const amount = parseFloat(document.getElementById('amount').value) || 0;
+            const discountValue = parseFloat(document.getElementById('discountValue').value) || 0;
+            const preview = document.getElementById('discountPreview');
+
+            if (amount > 0 && discountValue > 0 && discountValue < 10) {
+                const discountedAmount = (amount * discountValue / 10).toFixed(2);
+                preview.textContent = `折后: ¥${discountedAmount}`;
+            } else {
+                preview.textContent = '';
             }
         }
 
@@ -245,14 +302,8 @@
                     }
                 }
 
-                // 正常单金额验证
+                // 正常单验证（只验证问题内容，金额可任意输入）
                 if (orderType === 'normal') {
-                    const amountNum = parseFloat(amount);
-                    if (!allowedNormalAmounts.includes(amountNum)) {
-                        errorDiv.textContent = '输入金额有误';
-                        errorDiv.classList.remove('hidden');
-                        return;
-                    }
                     const questionContent = document.getElementById('questionContent').value.trim();
                     if (!questionContent) {
                         errorDiv.textContent = '正常单必须填写问题内容哦宝宝～';
@@ -267,12 +318,25 @@
                 errorDiv.classList.add('hidden');
 
                 try {
+                    // 获取折扣信息
+                    const hasDiscount = orderType === 'normal' && document.getElementById('hasDiscount').checked;
+                    const discountValue = hasDiscount ? parseFloat(document.getElementById('discountValue').value) : null;
+                    const originalAmount = orderType === 'monthly' ? 0 : parseFloat(amount);
+
+                    // 计算折后金额
+                    let finalAmount = originalAmount;
+                    if (hasDiscount && discountValue && discountValue > 0 && discountValue < 10) {
+                        finalAmount = originalAmount * discountValue / 10;
+                    }
+
                     const orderData = {
                         date: document.getElementById('orderDate').value,
                         bossName: bossName,
                         type: orderType,
                         divinerId: (orderType === 'monthly' || orderType === 'prepaid') ? '无' : document.getElementById('divinerId').value,
-                        amount: orderType === 'monthly' ? 0 : parseFloat(amount),
+                        amount: finalAmount,  // 使用折后金额
+                        originalAmount: hasDiscount ? originalAmount : null,  // 原价（如有折扣）
+                        discount: discountValue,  // 折扣值（如 8 表示 8折）
                         questionContent: (orderType === 'monthly' || orderType === 'prepaid') ? '' : document.getElementById('questionContent').value
                     };
 
