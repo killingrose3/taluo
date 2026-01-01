@@ -736,11 +736,20 @@
         }
       });
 
-      // 排序：未结算的在前，已结算的在后
+      // 排序：有金额优先、金额大优先、已结算排最后
       settlementEntries.sort((a, b) => {
+        // 已结算排最后
         if (a.isSettled && !b.isSettled) return 1;
         if (!a.isSettled && b.isSettled) return -1;
-        return 0;
+
+        // 计算金额
+        const amountA = a.orders.reduce((sum, o) => sum + calculateCommission(o, a.receptionist || {}), 0);
+        const amountB = b.orders.reduce((sum, o) => sum + calculateCommission(o, b.receptionist || {}), 0);
+
+        // 有金额的优先，金额大的优先
+        if (amountA === 0 && amountB > 0) return 1;
+        if (amountA > 0 && amountB === 0) return -1;
+        return amountB - amountA;  // 金额从大到小
       });
 
       let html = renderHeader() + `
@@ -831,8 +840,10 @@
                     ${r.isIntern ? '<span class="text-xs" style="color: var(--warning); margin-left: 8px;">实习</span>' : ''}
                     ${r.isDeleted ? '<span class="text-xs" style="color: var(--danger); margin-left: 8px;">(已注销)</span>' : ''}
                   </div>
-                  ${!r.isDeleted && !isSettled ? `
-                    <button class="settle-checkbox" onclick="toggleSettlement('${r.id}')"></button>
+                  ${!r.isDeleted ? `
+                    <button class="settle-checkbox ${isSettled ? 'checked' : ''}" onclick="${isSettled ? `undoSettlement('${r.id}')` : `toggleSettlement('${r.id}')`}" style="${isSettled ? 'background: var(--success); border-color: var(--success);' : ''}">
+                      ${isSettled ? '✓' : ''}
+                    </button>
                   ` : ''}
                 </div>
                 <div class="list-item-stats mb-3">
@@ -954,6 +965,16 @@
 
       await refreshData();
       renderWeeklySettlement();
+    }
+
+    // 取消结算（从UI调用）
+    async function undoSettlement(rid) {
+      const receptionist = cachedData.receptionists.find(r => r.id === rid);
+      const receptionistName = receptionist?.name || '该接待';
+
+      if (confirm(`确定取消 ${receptionistName} 的结算状态吗？\n\n接待员页面余额将恢复到结算前状态。`)) {
+        await undoLastSettlement(rid);
+      }
     }
 
     // 提交奖金视图
@@ -1158,6 +1179,7 @@
       const monthStart = getMonthStart();
       const monthOrders = orders.filter(o => o.approved !== false && new Date(o.createdAt) >= monthStart);
       const totalStudioIncome = calculateTotalStudioIncome(monthOrders);
+      const totalMonthlyCards = monthOrders.filter(o => o.type === 'monthly').length;
 
       const getStats = (rid) => {
         const rOrders = monthOrders.filter(o => o.receptionistId === rid);
@@ -1186,6 +1208,7 @@
           <div class="stats-section" onclick="setView('monthlyFlowDetail', { id: 'all', name: '工作室总览' })" style="background: linear-gradient(135deg, rgba(255,215,0,0.15), rgba(255,215,0,0.08)); border: 1px solid rgba(255,215,0,0.25); text-align: center; margin-bottom: 20px; cursor: pointer;">
              <p class="text-muted mb-2">本月工作室收入</p>
              <p style="font-size: 32px; font-weight: 700; color: var(--accent);">¥${totalStudioIncome.toFixed(2)}</p>
+             <p style="font-size: 14px; color: var(--success); margin-top: 8px;">共计 ${totalMonthlyCards} 个月卡</p>
              <p class="text-xs text-muted mt-2">正常/预存单25% | 礼物单10% | 月卡单9.9元/单</p>
              <p style="font-size: 12px; color: var(--text-muted); margin-top: 8px;">点击查看 ▶</p>
           </div>
