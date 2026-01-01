@@ -64,7 +64,7 @@
       switch (view) {
         case 'home': renderHome(); break;
         case 'reviewOrders': renderReviewOrders(); break;
-        case 'dailyIncome': renderDailyIncome(); break;
+        case 'dailyIncome': selectedIncomeDate = getToday(); renderDailyIncome(); break;
         case 'weeklySettlement': renderWeeklySettlement(); break;
         case 'submitBonus': renderSubmitBonus(); break;
         case 'taskManagement': renderTaskManagement(); break;
@@ -108,7 +108,7 @@
 
     function renderHome() {
       const orders = cachedData.orders;
-      const pendingCount = orders.filter(o => o.approved === false).length;
+      const pendingCount = orders.filter(o => o.approved !== true && !o.rejectionReason).length;
       const receptionists = cachedData.receptionists.filter(r => r.role === 'receptionist' && !r.isDeleted);
 
       let html = renderHeader() + `<div class="card">`;
@@ -236,7 +236,8 @@
     // 审核订单视图
     function renderReviewOrders() {
       const orders = cachedData.orders;
-      const pendingOrders = orders.filter(o => o.approved === false);
+      // 待审核：approved 不是 true 且没有拒绝原因（即未通过、未驳回）
+      const pendingOrders = orders.filter(o => o.approved !== true && !o.rejectionReason);
       const receptionists = cachedData.receptionists;
 
       let html = renderHeader() + `
@@ -406,25 +407,36 @@
       }
     }
 
-    // 每日收入视图
-    function renderDailyIncome() {
+    // 每日收入视图 - 支持日期选择
+    let selectedIncomeDate = getToday();  // 默认今天
+
+    function renderDailyIncome(targetDate) {
+      if (targetDate) selectedIncomeDate = targetDate;
       const orders = cachedData.orders;
-      const today = getToday();
-      const todayOrders = orders.filter(o => o.date === today && o.approved !== false);
+      const displayDate = selectedIncomeDate;
+      const isToday = displayDate === getToday();
+      const dateOrders = orders.filter(o => o.date === displayDate && o.approved !== false);
       const receptionists = cachedData.receptionists.filter(r => r.role === 'receptionist');
-      const totalIncome = calculateTotalStudioIncome(todayOrders);
+      const totalIncome = calculateTotalStudioIncome(dateOrders);
+
+      // 格式化显示日期
+      const dateObj = new Date(displayDate);
+      const dateDisplay = isToday ? '今日' : `${dateObj.getMonth() + 1}月${dateObj.getDate()}日`;
 
       let html = renderHeader() + `
         <div class="card">
-          <h2 style="font-size: 18px; margin-bottom: 16px;">📊 今日收入明细</h2>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h2 style="font-size: 18px; margin: 0;">📊 ${dateDisplay}收入明细</h2>
+            <button onclick="showDatePicker()" style="background: var(--primary); color: #fff; border: none; padding: 6px 12px; border-radius: 8px; font-size: 12px; cursor: pointer;">📅 选择日期</button>
+          </div>
           <div class="stats-section stats-section-green text-center mb-5">
-            <p class="text-muted mb-2">今日工作室收入</p>
+            <p class="text-muted mb-2">${dateDisplay}工作室收入</p>
             <p style="font-size: 32px; font-weight: 700; color: var(--success);">¥${totalIncome.toFixed(2)}</p>
             <p class="text-xs text-muted mt-2">正常/预存单25% | 礼物单10% | 月卡单9.9元/单</p>
           </div>
           <h3 style="font-size: 16px; margin-bottom: 12px;">接待统计</h3>
           ${receptionists.map(r => {
-        const rOrders = todayOrders.filter(o => o.receptionistId === r.id);
+        const rOrders = dateOrders.filter(o => o.receptionistId === r.id);
         if (r.isDeleted && rOrders.length === 0) return '';
         const stats = {
           total: rOrders.length,
@@ -517,6 +529,108 @@
         </div >
         `;
       document.getElementById('pageContent').innerHTML = html;
+    }
+
+    // 日期选择器
+    let datePickerMonth = new Date();  // 当前显示的月份
+
+    function showDatePicker() {
+      datePickerMonth = new Date(selectedIncomeDate);  // 初始化为当前选中的日期所在月
+      renderDatePicker();
+    }
+
+    function renderDatePicker() {
+      const year = datePickerMonth.getFullYear();
+      const month = datePickerMonth.getMonth();
+      const firstDay = new Date(year, month, 1);
+      const lastDay = new Date(year, month + 1, 0);
+      const startWeekday = firstDay.getDay(); // 0=周日
+      const daysInMonth = lastDay.getDate();
+
+      // 计算当月每一天的收入，找出最高的一天
+      const orders = cachedData.orders || [];
+      let dailyIncomes = {};
+      let maxIncome = 0;
+      let maxIncomeDate = null;
+
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const dayOrders = orders.filter(o => o.date === dateStr && o.approved !== false);
+        const income = calculateTotalStudioIncome(dayOrders);
+        dailyIncomes[dateStr] = income;
+
+        if (income > maxIncome) {
+          maxIncome = income;
+          maxIncomeDate = dateStr;
+        }
+      }
+
+      // 生成日历格子
+      let calendarHtml = '';
+      const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+      calendarHtml += '<div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center;">';
+
+      // 星期标题
+      weekdays.forEach(d => {
+        calendarHtml += `<div style="font-size: 12px; color: var(--text-muted); padding: 8px 0;">${d}</div>`;
+      });
+
+      // 空白格子（月初前的）
+      for (let i = 0; i < startWeekday; i++) {
+        calendarHtml += '<div></div>';
+      }
+
+      // 日期格子
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const isSelected = dateStr === selectedIncomeDate;
+        const isToday = dateStr === getToday();
+        const isMaxIncome = dateStr === maxIncomeDate && maxIncome > 0;
+
+        calendarHtml += `
+          <div onclick="selectDate('${dateStr}')" style="padding: 8px; cursor: pointer; border-radius: 8px; position: relative;
+            ${isSelected ? 'background: var(--accent); color: #000; font-weight: bold;' : ''}
+            ${isToday && !isSelected ? 'border: 2px solid var(--primary);' : ''}
+            transition: background 0.2s;"
+            onmouseover="this.style.background = this.style.background || 'var(--bg-hover)'"
+            onmouseout="this.style.background = '${isSelected ? 'var(--accent)' : ''}'">
+            ${day}${isMaxIncome ? '<span style="position: absolute; top: -2px; right: -2px; font-size: 12px; color: #9d8b9e;">☆</span>' : ''}
+          </div>
+        `;
+      }
+
+      calendarHtml += '</div>';
+
+      // 创建弹窗
+      const existingModal = document.getElementById('datePickerModal');
+      if (existingModal) existingModal.remove();
+
+      const modal = document.createElement('div');
+      modal.id = 'datePickerModal';
+      modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px;';
+      modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+      modal.innerHTML = `
+        <div style="background: var(--bg-card); border-radius: 16px; padding: 20px; max-width: 320px; width: 100%; box-shadow: 0 20px 50px rgba(0,0,0,0.3);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <button onclick="changePickerMonth(-1)" style="background: var(--bg-hover); border: none; color: var(--text); width: 32px; height: 32px; border-radius: 8px; cursor: pointer; font-size: 16px;">◀</button>
+            <span style="font-size: 16px; font-weight: 600;">${year}年${month + 1}月</span>
+            <button onclick="changePickerMonth(1)" style="background: var(--bg-hover); border: none; color: var(--text); width: 32px; height: 32px; border-radius: 8px; cursor: pointer; font-size: 16px;">▶</button>
+          </div>
+          ${calendarHtml}
+          <button onclick="document.getElementById('datePickerModal').remove()" style="width: 100%; margin-top: 16px; padding: 10px; background: var(--bg-hover); border: none; border-radius: 8px; color: var(--text); cursor: pointer;">取消</button>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    function changePickerMonth(delta) {
+      datePickerMonth.setMonth(datePickerMonth.getMonth() + delta);
+      renderDatePicker();
+    }
+
+    function selectDate(dateStr) {
+      document.getElementById('datePickerModal').remove();
+      renderDailyIncome(dateStr);
     }
 
     // 删除订单功能
@@ -1073,6 +1187,7 @@
              <p class="text-muted mb-2">本月工作室收入</p>
              <p style="font-size: 32px; font-weight: 700; color: var(--accent);">¥${totalStudioIncome.toFixed(2)}</p>
              <p class="text-xs text-muted mt-2">正常/预存单25% | 礼物单10% | 月卡单9.9元/单</p>
+             <p style="font-size: 12px; color: var(--text-muted); margin-top: 8px;">点击查看 ▶</p>
           </div>
           
           <div style="display: flex; flex-direction: column; gap: 12px;">
