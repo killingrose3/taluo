@@ -542,6 +542,83 @@
       const settledIds = await DataStore.getSettledIds();
       const allReceptionists = receptionists.filter(r => r.role === 'receptionist');
 
+      // 获取本周结算历史（从 localStorage）
+      const weekKey = formatDate(weekStart);
+      const settlementHistoryKey = `nyx_settlement_history_${weekKey}`;
+      let settlementHistory = JSON.parse(localStorage.getItem(settlementHistoryKey) || '{}');
+
+      // 创建结算条目列表
+      let settlementEntries = [];
+
+      allReceptionists.forEach(r => {
+        // 获取该接待本周所有订单
+        const allROrders = weekOrders.filter(o => o.receptionistId === r.id);
+        if (r.isDeleted && allROrders.length === 0) return;
+
+        // 获取该接待的结算时间数组（按时间排序）
+        const rHistory = settlementHistory[r.id] || [];
+        const sortedHistory = [...rHistory].sort((a, b) => new Date(a) - new Date(b));
+
+        if (sortedHistory.length === 0) {
+          // 从未结算：显示所有订单
+          settlementEntries.push({
+            receptionist: r,
+            orders: allROrders,
+            isSettled: false,
+            isPostSettlement: false,
+            periodIndex: 0,
+            label: ''
+          });
+        } else {
+          // 有结算历史：按结算时间点分割订单
+          let previousTime = 0;
+
+          sortedHistory.forEach((settlementTime, index) => {
+            const settlementTs = new Date(settlementTime).getTime();
+            const periodOrders = allROrders.filter(o => {
+              const orderTime = new Date(o.createdAt).getTime();
+              return orderTime > previousTime && orderTime <= settlementTs;
+            });
+
+            // 创建已结算条目
+            if (periodOrders.length > 0 || index === 0) {
+              settlementEntries.push({
+                receptionist: r,
+                orders: periodOrders,
+                isSettled: true,
+                isPostSettlement: false,
+                periodIndex: index + 1,
+                label: sortedHistory.length > 1 ? `(第${index + 1}次结算)` : ''
+              });
+            }
+
+            previousTime = settlementTs;
+          });
+
+          // 检查是否有结算后的新订单
+          const lastSettlementTime = new Date(sortedHistory[sortedHistory.length - 1]).getTime();
+          const postOrders = allROrders.filter(o => new Date(o.createdAt).getTime() > lastSettlementTime);
+
+          if (postOrders.length > 0) {
+            settlementEntries.push({
+              receptionist: r,
+              orders: postOrders,
+              isSettled: false,
+              isPostSettlement: true,
+              periodIndex: sortedHistory.length + 1,
+              label: '(结算后新增)'
+            });
+          }
+        }
+      });
+
+      // 排序：未结算的在前，已结算的在后
+      settlementEntries.sort((a, b) => {
+        if (a.isSettled && !b.isSettled) return 1;
+        if (!a.isSettled && b.isSettled) return -1;
+        return 0;
+      });
+
       let html = renderHeader() + `
         <div class="card">
           <h2 style="font-size: 18px; margin-bottom: 16px;">💵 周结算清单</h2>
@@ -550,9 +627,11 @@
             <p style="font-size: 32px; font-weight: 700; color: var(--success);">¥${weeklyIncome.toFixed(2)}</p>
           </div>
           <h3 style="font-size: 16px; margin-bottom: 12px;">接待统计</h3>
-          ${allReceptionists.map(r => {
-        const rOrders = weekOrders.filter(o => o.receptionistId === r.id);
-        if (r.isDeleted && rOrders.length === 0) return '';
+          ${settlementEntries.map(entry => {
+        const r = entry.receptionist;
+        const rOrders = entry.orders;
+        const isSettled = entry.isSettled;
+
         const stats = {
           monthly: rOrders.filter(o => o.type === 'monthly').length,
           normal: rOrders.filter(o => o.type === 'normal').length,
@@ -594,7 +673,7 @@
 
         // 惩罚金额
         const weeklyPenalties = (r.penalties || []).filter(p => new Date(p.date) >= weekStart);
-        const penaltyAmount = weeklyPenalties.reduce((sum, p) => sum + p.amount, 0);
+        const penaltyAmount = isSettled ? 0 : weeklyPenalties.reduce((sum, p) => sum + p.amount, 0);
 
         // 额外任务奖励（只有完成强制任务才计算）
         let extraBonus = 0;
@@ -617,21 +696,19 @@
         // 如果强制任务未完成，不结算底薪，但提成和奖励正常结算
         const actualBaseSalary = mandatoryTaskComplete ? baseSalary : 0;
         const totalSalary = Math.max(0, actualBaseSalary + orderCommission + bonusAmount + extraBonus - penaltyAmount);
-        const isSettled = settledIds.includes(r.id);
 
         return `
-              <div class="list-item" style="${isSettled ? 'background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); opacity: 0.7;' : ''}">
+              <div class="list-item" style="${isSettled ? 'background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); opacity: 0.7;' : entry.isPostSettlement ? 'border: 2px solid var(--accent);' : ''}">
                 <div class="list-item-header">
                   <span class="list-item-avatar">${r.emoji}</span>
                   <div class="flex-1">
                     <span class="font-bold">${r.name}</span>
+                    ${entry.label ? `<span class="text-xs" style="color: ${entry.isPostSettlement ? 'var(--accent)' : 'var(--success)'}; margin-left: 8px;">${entry.label}</span>` : ''}
                     ${r.isIntern ? '<span class="text-xs" style="color: var(--warning); margin-left: 8px;">实习</span>' : ''}
                     ${r.isDeleted ? '<span class="text-xs" style="color: var(--danger); margin-left: 8px;">(已注销)</span>' : ''}
                   </div>
-                  ${!r.isDeleted ? `
-                    <button class="settle-checkbox ${isSettled ? 'checked' : ''}" onclick="toggleSettlement('${r.id}')">
-                      ${isSettled ? '✓' : ''}
-                    </button>
+                  ${!r.isDeleted && !isSettled ? `
+                    <button class="settle-checkbox" onclick="toggleSettlement('${r.id}')"></button>
                   ` : ''}
                 </div>
                 <div class="list-item-stats mb-3">
@@ -682,26 +759,75 @@
     }
 
     async function toggleSettlement(rid) {
-      const settledIds = await DataStore.getSettledIds();
-      const idx = settledIds.indexOf(rid);
+      const receptionist = cachedData.receptionists.find(r => r.id === rid);
+      const receptionistName = receptionist?.name || '该接待';
 
-      if (idx === -1) {
-        // 勾选：结算
+      // 获取本周结算历史
+      const weekStart = getWeekStart();
+      const weekKey = formatDate(weekStart);
+      const settlementHistoryKey = `nyx_settlement_history_${weekKey}`;
+      let settlementHistory = JSON.parse(localStorage.getItem(settlementHistoryKey) || '{}');
+
+      const rHistory = settlementHistory[rid] || [];
+      const newSettlementDate = new Date().toISOString();
+
+      // 添加新的结算时间到历史
+      rHistory.push(newSettlementDate);
+      settlementHistory[rid] = rHistory;
+      localStorage.setItem(settlementHistoryKey, JSON.stringify(settlementHistory));
+
+      // 更新数据库中的 lastSettlementDate
+      const updateResult = await DataStore.updateReceptionist(rid, {
+        lastSettlementDate: newSettlementDate
+      });
+
+      // 确保 settledIds 包含此接待
+      const settledIds = await DataStore.getSettledIds();
+      if (!settledIds.includes(rid)) {
         await DataStore.setSettled(rid, true);
-        await DataStore.updateReceptionist(rid, {
-          backupSettlementDate: cachedData.receptionists.find(r => r.id === rid)?.lastSettlementDate,
-          lastSettlementDate: new Date().toISOString()
-        });
-        localStorage.removeItem(`nyx_promo_${rid}`);
-      } else {
-        // 取消勾选：撤销结算
-        const r = cachedData.receptionists.find(rec => rec.id === rid);
-        await DataStore.setSettled(rid, false);
-        await DataStore.updateReceptionist(rid, {
-          lastSettlementDate: r?.backupSettlementDate || null,
-          backupSettlementDate: null
-        });
       }
+
+      localStorage.removeItem(`nyx_promo_${rid}`);
+
+      if (updateResult) {
+        const settlementCount = rHistory.length;
+        alert(`✅ ${receptionistName} 第${settlementCount}次结算完成！\n\n接待员刷新页面后余额将重置。`);
+      } else {
+        alert(`❌ 结算失败！请检查控制台错误信息。`);
+      }
+
+      await refreshData();
+      renderWeeklySettlement();
+    }
+
+    // 撤销最后一次结算
+    async function undoLastSettlement(rid) {
+      const receptionist = cachedData.receptionists.find(r => r.id === rid);
+      const receptionistName = receptionist?.name || '该接待';
+
+      // 获取本周结算历史
+      const weekStart = getWeekStart();
+      const weekKey = formatDate(weekStart);
+      const settlementHistoryKey = `nyx_settlement_history_${weekKey}`;
+      let settlementHistory = JSON.parse(localStorage.getItem(settlementHistoryKey) || '{}');
+
+      const rHistory = settlementHistory[rid] || [];
+      if (rHistory.length > 0) {
+        rHistory.pop(); // 移除最后一次结算
+        settlementHistory[rid] = rHistory;
+        localStorage.setItem(settlementHistoryKey, JSON.stringify(settlementHistory));
+
+        // 更新 lastSettlementDate 为上一次结算时间或 null
+        const newLastDate = rHistory.length > 0 ? rHistory[rHistory.length - 1] : null;
+        await DataStore.updateReceptionist(rid, { lastSettlementDate: newLastDate });
+
+        if (rHistory.length === 0) {
+          await DataStore.setSettled(rid, false);
+        }
+
+        alert(`↩️ ${receptionistName} 最后一次结算已撤销`);
+      }
+
       await refreshData();
       renderWeeklySettlement();
     }
@@ -732,7 +858,7 @@
             </div>
             <div class="form-group">
               <label class="form-label">金额</label>
-              <input type="number" id="bonusAmount" class="form-input" placeholder="请输入金额" required>
+              <input type="number" id="bonusAmount" class="form-input" placeholder="请输入金额" step="0.01" required>
             </div>
             <button type="submit" class="btn btn-accent btn-full">确认发放</button>
           </form>
@@ -1275,7 +1401,7 @@
                   <option value="monthly">月卡单</option><option value="prepaid">预存单</option>
                 </select>
               </div>
-              <div class="form-group" id="addOrderAmountGroup"><label class="form-label">金额</label><input type="number" id="addOrderAmount" class="form-input"></div>
+              <div class="form-group" id="addOrderAmountGroup"><label class="form-label">金额</label><input type="number" id="addOrderAmount" class="form-input" step="0.01"></div>
               <div class="form-group hidden" id="addOrderCountGroup"><label class="form-label">数量（个）</label><input type="number" id="addOrderCount" class="form-input" min="1" value="1"></div>
               <div class="flex gap-3">
                 <button type="button" class="btn btn-secondary flex-1" onclick="closeAddOrderModal()">取消</button>
@@ -1352,6 +1478,18 @@
         if (matchedReceptionist) {
           hasMatch = true;
           const rOrders = orders.filter(o => o.receptionistId === matchedReceptionist.id);
+
+          // 分类统计订单
+          const normalCount = rOrders.filter(o => o.type === 'normal').length;
+          const giftCount = rOrders.filter(o => o.type === 'gift').length;
+          const monthlyCount = rOrders.filter(o => o.type === 'monthly').length;
+          const prepaidCount = rOrders.filter(o => o.type === 'prepaid').length;
+          const bonusCount = rOrders.filter(o => o.type === 'bonus').length;
+
+          // 实际订单数（不含奖励）
+          const actualOrderCount = normalCount + giftCount + monthlyCount + prepaidCount;
+
+          // 计算累计流水（不含奖励和月卡单）
           const totalAmount = rOrders.reduce((sum, o) => {
             if (o.type === 'monthly') return sum + 9.9;
             if (['normal', 'gift', 'deduct_prepaid', 'prepaid'].includes(o.type)) return sum + (o.amount || 0);
@@ -1362,7 +1500,13 @@
       <div onclick = "setView('receptionistDetail', { id: '${matchedReceptionist.id}' })" style = "background: transparent; border: 1px solid var(--border); padding: 16px; border-radius: 12px; cursor: pointer; transition: transform 0.2s; margin-bottom: 12px;" >
                <div style="margin-bottom: 12px;">
                  <h3 style="font-size: 18px; font-weight: bold; margin-bottom: 8px; color: var(--text);">👤 接待：${matchedReceptionist.name}</h3>
-                 <p style="font-size: 14px; color: var(--text-muted);">累计接单：${rOrders.length} 单</p>
+                 <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 4px;">累计接单：<span style="font-weight: bold; color: var(--text);">${actualOrderCount}</span> 单</p>
+                 <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">
+                   正常单 ${normalCount} | 礼物单 ${giftCount} | 月卡单 ${monthlyCount} | 预存单 ${prepaidCount}
+                 </p>
+                 <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">
+                   🏆 奖励记录 ${bonusCount} 条（不计入单数）
+                 </p>
                  <p style="font-size: 14px; color: var(--text-muted);">累计流水：<span style="font-weight: bold; color: var(--accent); font-size: 16px;">¥${totalAmount.toFixed(0)}</span></p>
                </div>
                <div style="text-align: right;">
@@ -1652,7 +1796,7 @@
             </div>
             <div class="form-group"><label class="form-label">罚款原因</label><input type="text" id="penaltyReason" class="form-input" placeholder="请输入罚款原因" required></div>
             <div class="form-group"><label class="form-label">罚款时间</label><input type="date" id="penaltyDate" class="form-input" value="${getToday()}" required></div>
-            <div class="form-group"><label class="form-label">罚款金额</label><input type="number" id="penaltyAmount" class="form-input" placeholder="请输入金额" required></div>
+            <div class="form-group"><label class="form-label">罚款金额</label><input type="number" id="penaltyAmount" class="form-input" placeholder="请输入金额" step="0.01" required></div>
             <button type="submit" class="btn btn-danger btn-full">确认罚款</button>
           </form>
         </div >
