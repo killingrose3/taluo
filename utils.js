@@ -22,6 +22,7 @@ const colors = {
   giftOrder: '#ec4899',
   monthlyOrder: '#10b981',
   prepaidOrder: '#f59e0b',
+  deductPrepaidOrder: '#a78bfa',  // 浅紫罗兰色
   bonus: '#ffd700'
 };
 
@@ -59,7 +60,7 @@ function getOrderTypeColor(type) {
     case 'gift': return colors.giftOrder;
     case 'monthly': return colors.monthlyOrder;
     case 'prepaid': return colors.prepaidOrder;
-    case 'deduct_prepaid': return colors.warning;
+    case 'deduct_prepaid': return colors.deductPrepaidOrder;
     case 'bonus': return colors.bonus;
     default: return colors.primary;
   }
@@ -299,6 +300,7 @@ const DataStore = {
       questionContent: o.question_content,
       bonusType: o.bonus_type,
       approved: o.approved,
+      rejectionReason: o.rejection_reason || null,
       date: o.date,
       createdAt: o.created_at,
       _raw: o
@@ -343,6 +345,7 @@ const DataStore = {
     if (updates.bossName !== undefined) dbUpdates.boss_name = updates.bossName;
     if (updates.divinerId !== undefined) dbUpdates.diviner_id = updates.divinerId;
     if (updates.questionContent !== undefined) dbUpdates.question_content = updates.questionContent;
+    if (updates.rejectionReason !== undefined) dbUpdates.rejection_reason = updates.rejectionReason;
 
     const { data, error } = await supabaseClient
       .from('orders')

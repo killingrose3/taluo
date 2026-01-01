@@ -393,10 +393,16 @@
     }
 
     async function rejectOrder(orderId) {
-      if (confirm('确定驳回此订单？')) {
-        await DataStore.deleteOrder(orderId);
+      const reason = prompt('请填写审核不通过原因：');
+      if (reason !== null) {  // 用户没有点击取消
+        const rejectionReason = reason.trim() || '未填写原因';
+        await DataStore.updateOrder(orderId, {
+          approved: false,
+          rejectionReason: rejectionReason
+        });
         await refreshData();
         renderReviewOrders();
+        alert('订单已驳回，接待会在页面看到提示');
       }
     }
 
@@ -2132,7 +2138,7 @@
             return `
                    <div style="background: var(--bg-light); padding: 16px; border-radius: 12px; border-left: 4px solid ${typeColor}; position: relative;">
                       <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
-                         <span style="font-weight: bold; font-size: 16px;">${typeName}</span>
+                         <span style="font-weight: bold; font-size: 16px; color: ${typeColor};">${typeName}</span>
                          <div style="display: flex; align-items: center; gap: 8px;">
                            <span style="font-size: 14px; color: var(--text-muted);">${formatDate(o.date)}</span>
                            <button onclick="deleteBossOrder(${o.id}, '${bossName}')" style="background: var(--danger); color: white; border: none; border-radius: 4px; padding: 4px 10px; font-size: 12px; cursor: pointer;">删除</button>
@@ -2141,14 +2147,14 @@
                       
                       <div style="font-size: 14px; color: var(--text-muted); line-height: 1.6; margin-bottom: 8px;">
                         ${o.questionContent ? `<p>问题：<span style="color: var(--text);">${o.questionContent}</span></p>` : ''}
-                        <p>单子价格：<span style="color: var(--text);">¥${price}</span></p>
+                        <p>单子价格：<span style="color: ${typeColor}; font-weight: 600;">¥${price}</span></p>
                         <p>接待：<span style="color: var(--text);">${rName}</span></p>
                         ${o.divinerId && o.divinerId !== '无' ? `<p>占卜师：<span style="color: var(--text);">${o.divinerId}</span></p>` : ''}
                       </div>
 
                       <div style="text-align: right; border-top: 1px dashed var(--border); padding-top: 12px; margin-top: 8px;">
                          <span style="color: var(--text-muted); font-size: 12px;">当前余额：</span>
-                         <span style="font-size: 24px; font-weight: bold; color: var(--accent);">¥${balance}</span>
+                         <span style="font-size: 24px; font-weight: bold; color: ${typeColor};">¥${balance}</span>
                       </div>
                    </div>
                  `;

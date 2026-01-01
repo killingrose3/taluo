@@ -223,16 +223,17 @@
             const preview = document.getElementById('discountPreview');
 
             if (amount > 0 && discountValue > 0 && discountValue < 10) {
-                const discountedAmount = (amount * discountValue / 10).toFixed(2);
-                preview.textContent = `折后: ¥${discountedAmount}`;
+                const discountedAmount = amount * discountValue / 10;
+                const floorAmount = Math.floor(discountedAmount);  // 抹除小数
+                preview.innerHTML = `折后: ¥${discountedAmount.toFixed(2)} → <strong style="color: var(--success);">实收 ¥${floorAmount}</strong>`;
             } else {
                 preview.textContent = '';
             }
         }
 
-        // 同步计算老板余额
+        // 同步计算老板余额（只计算已通过审核的订单）
         function getBossBalanceFromCache(bossName) {
-            const bossOrders = cachedOrders.filter(o => o.bossName === bossName && o.approved !== false);
+            const bossOrders = cachedOrders.filter(o => o.bossName === bossName && o.approved === true);
             const totalPrepaid = bossOrders.filter(o => o.type === 'prepaid').reduce((sum, o) => sum + (o.amount || 0), 0);
             const totalDeducted = bossOrders.filter(o => o.type === 'deduct_prepaid').reduce((sum, o) => sum + (o.amount || 0), 0);
             return totalPrepaid - totalDeducted;
@@ -282,11 +283,7 @@
                         return;
                     }
 
-                    if (!allowedDeductAmounts.includes(deductAmount)) {
-                        errorDiv.textContent = '输入金额有误';
-                        errorDiv.classList.remove('hidden');
-                        return;
-                    }
+                    // 金额验证已移除，允许输入任意金额（提示仍保留）
 
                     const questionContent = document.getElementById('questionContent').value.trim();
                     if (!questionContent) {
@@ -323,10 +320,10 @@
                     const discountValue = hasDiscount ? parseFloat(document.getElementById('discountValue').value) : null;
                     const originalAmount = orderType === 'monthly' ? 0 : parseFloat(amount);
 
-                    // 计算折后金额
+                    // 计算折后金额（抹除小数）
                     let finalAmount = originalAmount;
                     if (hasDiscount && discountValue && discountValue > 0 && discountValue < 10) {
-                        finalAmount = originalAmount * discountValue / 10;
+                        finalAmount = Math.floor(originalAmount * discountValue / 10);  // 抹除小数
                     }
 
                     const orderData = {
