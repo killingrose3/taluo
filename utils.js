@@ -200,6 +200,7 @@ const DataStore = {
       isDeleted: u.is_deleted,
       lastSettlementDate: u.last_settlement_date,
       backupSettlementDate: u.backup_settlement_date,
+      createdAt: u.created_at,
       // 保留原始字段用于数据库操作
       _raw: u
     }));

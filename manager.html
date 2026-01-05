@@ -1677,6 +1677,8 @@
               </div>
               <div class="form-group" id="addOrderAmountGroup"><label class="form-label">金额</label><input type="number" id="addOrderAmount" class="form-input" step="0.01"></div>
               <div class="form-group hidden" id="addOrderCountGroup"><label class="form-label">数量（个）</label><input type="number" id="addOrderCount" class="form-input" min="1" value="1"></div>
+              <div class="form-group" id="addOrderQuestionGroup"><label class="form-label">问题内容</label><input type="text" id="addOrderQuestion" class="form-input" placeholder="填写问题内容"></div>
+              <div class="form-group" id="addOrderDivinerGroup"><label class="form-label">占卜师</label><input type="text" id="addOrderDiviner" class="form-input" placeholder="填写占卜师名称"></div>
               <div class="flex gap-3">
                 <button type="button" class="btn btn-secondary flex-1" onclick="closeAddOrderModal()">取消</button>
                 <button type="submit" class="btn btn-primary flex-1">确认补录</button>
@@ -1913,13 +1915,28 @@
           alert('补录成功！共添加 ' + count + ' 个月卡单');
         } else {
           // 其他类型：单个创建
+          const amount = parseFloat(document.getElementById('addOrderAmount').value) || 0;
+          const questionContent = document.getElementById('addOrderQuestion')?.value?.trim() || '';
+          const divinerId = document.getElementById('addOrderDiviner')?.value?.trim() || '';
+
+          // 正常单和礼物单需要问题内容和占卜师
+          if ((type === 'normal' || type === 'gift') && !questionContent) {
+            alert('正常单和礼物单需要填写问题内容');
+            return;
+          }
+          if ((type === 'normal' || type === 'gift') && !divinerId) {
+            alert('正常单和礼物单需要填写占卜师');
+            return;
+          }
+
           await DataStore.saveOrder({
             receptionistId: rid,
             date: date,
             bossName: bossName,
             type: type,
-            divinerId: type === 'prepaid' ? '无' : '',
-            amount: parseFloat(document.getElementById('addOrderAmount').value) || 0,
+            questionContent: (type === 'normal' || type === 'gift') ? questionContent : null,
+            divinerId: (type === 'normal' || type === 'gift') ? divinerId : (type === 'prepaid' ? '无' : ''),
+            amount: amount,
             approved: true
           });
           await refreshData();
@@ -1936,12 +1953,25 @@
       const type = document.getElementById('addOrderType').value;
       const amountGroup = document.getElementById('addOrderAmountGroup');
       const countGroup = document.getElementById('addOrderCountGroup');
+      const questionGroup = document.getElementById('addOrderQuestionGroup');
+      const divinerGroup = document.getElementById('addOrderDivinerGroup');
+
       if (type === 'monthly') {
         amountGroup.classList.add('hidden');
         countGroup.classList.remove('hidden');
-      } else {
+        questionGroup.classList.add('hidden');
+        divinerGroup.classList.add('hidden');
+      } else if (type === 'prepaid') {
         amountGroup.classList.remove('hidden');
         countGroup.classList.add('hidden');
+        questionGroup.classList.add('hidden');
+        divinerGroup.classList.add('hidden');
+      } else {
+        // 正常单和礼物单需要问题内容和占卜师
+        amountGroup.classList.remove('hidden');
+        countGroup.classList.add('hidden');
+        questionGroup.classList.remove('hidden');
+        divinerGroup.classList.remove('hidden');
       }
     }
 
