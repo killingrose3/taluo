@@ -31,6 +31,29 @@
     let currentView = 'home';
     let selectedReceptionist = null;
     let cachedData = { orders: [], receptionists: [], penalties: [], announcements: [] };
+    let isSubmitting = false;  // 防止重复提交
+
+    // 加载弹窗函数
+    function showLoadingOverlay(message = '正在添加中。。。请等待一下捏～<br>ꉂꉂ꒰•̤▿•̤*ૢ꒱') {
+      if (document.getElementById('loadingOverlay')) return;
+      isSubmitting = true;
+      const overlay = document.createElement('div');
+      overlay.id = 'loadingOverlay';
+      overlay.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 9999;';
+      overlay.innerHTML = `
+        <div style="background: var(--bg-card); padding: 24px 32px; border-radius: 16px; text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,0.3); max-width: 300px;">
+          <div style="font-size: 32px; margin-bottom: 12px;">⏳</div>
+          <p style="color: var(--text); font-size: 14px; line-height: 1.6;">${message}</p>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+    }
+
+    function hideLoadingOverlay() {
+      isSubmitting = false;
+      const overlay = document.getElementById('loadingOverlay');
+      if (overlay) overlay.remove();
+    }
 
     // 检查权限
     const user = requireManager();
@@ -1122,6 +1145,7 @@
                 <option value="psychology">💚 心理委员补助</option>
                 <option value="recruitment">🌟 招新提成</option>
                 <option value="weeklyReward">🏆 周任务奖励</option>
+                <option value="appreciation">💖 赞赏宝宝奖</option>
               </select>
             </div>
             <div class="form-group">
@@ -1885,6 +1909,10 @@
 
     async function handleAddOrder(e) {
       e.preventDefault();
+
+      // 防止重复提交
+      if (isSubmitting) return;
+
       const rid = document.getElementById('manageReceptionist').value;
       const type = document.getElementById('addOrderType').value;
       const date = document.getElementById('addOrderDate').value;
@@ -1894,6 +1922,9 @@
         alert('请先选择接待');
         return;
       }
+
+      // 显示加载弹窗
+      showLoadingOverlay();
 
       try {
         if (type === 'monthly') {
@@ -1911,6 +1942,7 @@
             });
           }
           await refreshData();
+          hideLoadingOverlay();
           closeAddOrderModal();
           alert('补录成功！共添加 ' + count + ' 个月卡单');
         } else {
@@ -1921,10 +1953,12 @@
 
           // 正常单和礼物单需要问题内容和占卜师
           if ((type === 'normal' || type === 'gift') && !questionContent) {
+            hideLoadingOverlay();
             alert('正常单和礼物单需要填写问题内容');
             return;
           }
           if ((type === 'normal' || type === 'gift') && !divinerId) {
+            hideLoadingOverlay();
             alert('正常单和礼物单需要填写占卜师');
             return;
           }
@@ -1940,10 +1974,12 @@
             approved: true
           });
           await refreshData();
+          hideLoadingOverlay();
           closeAddOrderModal();
           alert('补录成功！');
         }
       } catch (err) {
+        hideLoadingOverlay();
         console.error('补录订单失败:', err);
         alert('补录失败，请检查网络连接后重试');
       }
