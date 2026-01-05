@@ -65,7 +65,7 @@
         case 'home': renderHome(); break;
         case 'reviewOrders': renderReviewOrders(); break;
         case 'dailyIncome': selectedIncomeDate = getToday(); renderDailyIncome(); break;
-        case 'weeklySettlement': renderWeeklySettlement(); break;
+        case 'weeklySettlement': selectedSettlementWeek = null; renderWeeklySettlement(); break;
         case 'submitBonus': renderSubmitBonus(); break;
         case 'taskManagement': renderTaskManagement(); break;
         case 'modifyCommission': renderModifyCommission(); break;
@@ -656,12 +656,23 @@
       }
     }
 
-    // 周结算清单视图
-    async function renderWeeklySettlement() {
+    // 周结算清单视图 - 支持选择周
+    let selectedSettlementWeek = null;  // null 表示当前周
+
+    async function renderWeeklySettlement(targetWeekStart) {
+      if (targetWeekStart) selectedSettlementWeek = targetWeekStart;
       const orders = cachedData.orders;
       const receptionists = cachedData.receptionists;
-      const weekStart = getWeekStart();
-      const weekOrders = orders.filter(o => new Date(o.date) >= weekStart && o.approved !== false);
+
+      // 使用选中的周或当前周
+      const weekStart = selectedSettlementWeek ? new Date(selectedSettlementWeek) : getWeekStart();
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekEnd.getDate() + 6);
+
+      const isCurrentWeek = formatDate(weekStart) === formatDate(getWeekStart());
+      const weekLabel = isCurrentWeek ? '本周' : `${weekStart.getMonth() + 1}/${weekStart.getDate()} - ${weekEnd.getMonth() + 1}/${weekEnd.getDate()}`;
+
+      const weekOrders = orders.filter(o => new Date(o.date) >= weekStart && new Date(o.date) <= weekEnd && o.approved !== false);
       const weeklyIncome = calculateTotalStudioIncome(weekOrders);
       const settledIds = await DataStore.getSettledIds();
       const allReceptionists = receptionists.filter(r => r.role === 'receptionist');
@@ -754,10 +765,14 @@
 
       let html = renderHeader() + `
         <div class="card">
-          <h2 style="font-size: 18px; margin-bottom: 16px;">💵 周结算清单</h2>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h2 style="font-size: 18px; margin: 0;">💵 周结算清单</h2>
+            <button onclick="showWeekPicker()" style="background: var(--primary); color: #fff; border: none; padding: 6px 12px; border-radius: 8px; font-size: 12px; cursor: pointer;">📅 选择周</button>
+          </div>
           <div class="stats-section stats-section-green text-center mb-5" style="cursor: pointer;">
-            <p class="text-muted mb-2">本周工作室收入</p>
+            <p class="text-muted mb-2">${weekLabel}工作室收入</p>
             <p style="font-size: 32px; font-weight: 700; color: var(--success);">¥${weeklyIncome.toFixed(2)}</p>
+            ${!isCurrentWeek ? `<p style="font-size: 12px; color: var(--text-muted); margin-top: 8px;">查看历史周数据</p>` : ''}
           </div>
           <h3 style="font-size: 16px; margin-bottom: 12px;">接待统计</h3>
           ${settlementEntries.map(entry => {
@@ -897,8 +912,9 @@
       const receptionist = cachedData.receptionists.find(r => r.id === rid);
       const receptionistName = receptionist?.name || '该接待';
 
-      // 获取本周结算历史
-      const weekStart = getWeekStart();
+      // 使用选中的周或当前周
+      const weekStart = selectedSettlementWeek ? new Date(selectedSettlementWeek) : getWeekStart();
+      const isCurrentWeek = formatDate(weekStart) === formatDate(getWeekStart());
       const weekKey = formatDate(weekStart);
       const settlementHistoryKey = `nyx_settlement_history_${weekKey}`;
       let settlementHistory = JSON.parse(localStorage.getItem(settlementHistoryKey) || '{}');
@@ -911,24 +927,31 @@
       settlementHistory[rid] = rHistory;
       localStorage.setItem(settlementHistoryKey, JSON.stringify(settlementHistory));
 
-      // 更新数据库中的 lastSettlementDate
-      const updateResult = await DataStore.updateReceptionist(rid, {
-        lastSettlementDate: newSettlementDate
-      });
+      // 只有当前周才更新数据库（影响接待页面）
+      if (isCurrentWeek) {
+        // 更新数据库中的 lastSettlementDate
+        const updateResult = await DataStore.updateReceptionist(rid, {
+          lastSettlementDate: newSettlementDate
+        });
 
-      // 确保 settledIds 包含此接待
-      const settledIds = await DataStore.getSettledIds();
-      if (!settledIds.includes(rid)) {
-        await DataStore.setSettled(rid, true);
-      }
+        // 确保 settledIds 包含此接待
+        const settledIds = await DataStore.getSettledIds();
+        if (!settledIds.includes(rid)) {
+          await DataStore.setSettled(rid, true);
+        }
 
-      localStorage.removeItem(`nyx_promo_${rid}`);
+        localStorage.removeItem(`nyx_promo_${rid}`);
 
-      if (updateResult) {
-        const settlementCount = rHistory.length;
-        alert(`✅ ${receptionistName} 第${settlementCount}次结算完成！\n\n接待员刷新页面后余额将重置。`);
+        if (updateResult) {
+          const settlementCount = rHistory.length;
+          alert(`✅ ${receptionistName} 第${settlementCount}次结算完成！\n\n接待员刷新页面后余额将重置。`);
+        } else {
+          alert(`❌ 结算失败！请检查控制台错误信息。`);
+        }
       } else {
-        alert(`❌ 结算失败！请检查控制台错误信息。`);
+        // 过去周：只记录，不影响接待页面
+        const settlementCount = rHistory.length;
+        alert(`✅ ${receptionistName} 历史结算已记录！\n\n（过去周结算仅供管理记录，不影响接待员页面）`);
       }
 
       await refreshData();
@@ -940,8 +963,9 @@
       const receptionist = cachedData.receptionists.find(r => r.id === rid);
       const receptionistName = receptionist?.name || '该接待';
 
-      // 获取本周结算历史
-      const weekStart = getWeekStart();
+      // 使用选中的周或当前周
+      const weekStart = selectedSettlementWeek ? new Date(selectedSettlementWeek) : getWeekStart();
+      const isCurrentWeek = formatDate(weekStart) === formatDate(getWeekStart());
       const weekKey = formatDate(weekStart);
       const settlementHistoryKey = `nyx_settlement_history_${weekKey}`;
       let settlementHistory = JSON.parse(localStorage.getItem(settlementHistoryKey) || '{}');
@@ -952,15 +976,19 @@
         settlementHistory[rid] = rHistory;
         localStorage.setItem(settlementHistoryKey, JSON.stringify(settlementHistory));
 
-        // 更新 lastSettlementDate 为上一次结算时间或 null
-        const newLastDate = rHistory.length > 0 ? rHistory[rHistory.length - 1] : null;
-        await DataStore.updateReceptionist(rid, { lastSettlementDate: newLastDate });
+        // 只有当前周才更新数据库（影响接待页面）
+        if (isCurrentWeek) {
+          const newLastDate = rHistory.length > 0 ? rHistory[rHistory.length - 1] : null;
+          await DataStore.updateReceptionist(rid, { lastSettlementDate: newLastDate });
 
-        if (rHistory.length === 0) {
-          await DataStore.setSettled(rid, false);
+          if (rHistory.length === 0) {
+            await DataStore.setSettled(rid, false);
+          }
+          alert(`↩️ ${receptionistName} 结算已撤销\n\n接待员页面余额将恢复。`);
+        } else {
+          // 过去周：只更新localStorage，不影响接待页面
+          alert(`↩️ ${receptionistName} 历史结算记录已撤销\n\n（过去周操作不影响接待员页面）`);
         }
-
-        alert(`↩️ ${receptionistName} 最后一次结算已撤销`);
       }
 
       await refreshData();
@@ -975,6 +1003,101 @@
       if (confirm(`确定取消 ${receptionistName} 的结算状态吗？\n\n接待员页面余额将恢复到结算前状态。`)) {
         await undoLastSettlement(rid);
       }
+    }
+
+    // 周选择器
+    let weekPickerMonth = new Date();
+
+    function showWeekPicker() {
+      weekPickerMonth = new Date();
+      renderWeekPicker();
+    }
+
+    function renderWeekPicker() {
+      const year = weekPickerMonth.getFullYear();
+      const month = weekPickerMonth.getMonth();
+      const firstDay = new Date(year, month, 1);
+      const lastDay = new Date(year, month + 1, 0);
+      const startWeekday = firstDay.getDay();
+      const daysInMonth = lastDay.getDate();
+
+      let calendarHtml = '<div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center;">';
+      const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+
+      weekdays.forEach(d => {
+        calendarHtml += `<div style="font-size: 12px; color: var(--text-muted); padding: 8px 0;">${d}</div>`;
+      });
+
+      for (let i = 0; i < startWeekday; i++) {
+        calendarHtml += '<div></div>';
+      }
+
+      const currentWeekStart = formatDate(getWeekStart());
+      const selectedWeekStartStr = selectedSettlementWeek ? formatDate(new Date(selectedSettlementWeek)) : currentWeekStart;
+
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const dateObj = new Date(dateStr);
+        const dayWeekStart = getWeekStartForDate(dateObj);
+        const dayWeekStartStr = formatDate(dayWeekStart);
+
+        const isSelectedWeek = dayWeekStartStr === selectedWeekStartStr;
+        const isCurrentWeek = dayWeekStartStr === currentWeekStart;
+        const isToday = dateStr === getToday();
+
+        calendarHtml += `
+          <div onclick="selectWeek('${dayWeekStartStr}')" style="padding: 8px; cursor: pointer; border-radius: 8px; position: relative;
+            ${isSelectedWeek ? 'background: var(--success); color: #fff; font-weight: bold;' : ''}
+            ${isCurrentWeek && !isSelectedWeek ? 'background: rgba(16, 185, 129, 0.2);' : ''}
+            ${isToday ? 'border: 2px solid var(--primary);' : ''}
+            transition: background 0.2s;"
+            onmouseover="if(!${isSelectedWeek}) this.style.background = 'var(--bg-hover)'"
+            onmouseout="this.style.background = '${isSelectedWeek ? 'var(--success)' : isCurrentWeek ? 'rgba(16, 185, 129, 0.2)' : ''}'">
+            ${day}
+          </div>
+        `;
+      }
+
+      calendarHtml += '</div>';
+
+      const existingModal = document.getElementById('weekPickerModal');
+      if (existingModal) existingModal.remove();
+
+      const modal = document.createElement('div');
+      modal.id = 'weekPickerModal';
+      modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px;';
+      modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+      modal.innerHTML = `
+        <div style="background: var(--bg-card); border-radius: 16px; padding: 20px; max-width: 320px; width: 100%; box-shadow: 0 20px 50px rgba(0,0,0,0.3);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <button onclick="changeWeekPickerMonth(-1)" style="background: var(--bg-hover); border: none; color: var(--text); width: 32px; height: 32px; border-radius: 8px; cursor: pointer; font-size: 16px;">◀</button>
+            <span style="font-size: 16px; font-weight: 600;">${year}年${month + 1}月</span>
+            <button onclick="changeWeekPickerMonth(1)" style="background: var(--bg-hover); border: none; color: var(--text); width: 32px; height: 32px; border-radius: 8px; cursor: pointer; font-size: 16px;">▶</button>
+          </div>
+          <p style="text-align: center; font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">点击任意日期选择该周</p>
+          ${calendarHtml}
+          <button onclick="selectWeek('${currentWeekStart}')" style="width: 100%; margin-top: 12px; padding: 10px; background: var(--success); border: none; border-radius: 8px; color: #fff; cursor: pointer;">回到本周</button>
+          <button onclick="document.getElementById('weekPickerModal').remove()" style="width: 100%; margin-top: 8px; padding: 10px; background: var(--bg-hover); border: none; border-radius: 8px; color: var(--text); cursor: pointer;">取消</button>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    function getWeekStartForDate(date) {
+      const d = new Date(date);
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+      return new Date(d.setDate(diff));
+    }
+
+    function changeWeekPickerMonth(delta) {
+      weekPickerMonth.setMonth(weekPickerMonth.getMonth() + delta);
+      renderWeekPicker();
+    }
+
+    function selectWeek(weekStartStr) {
+      document.getElementById('weekPickerModal').remove();
+      renderWeeklySettlement(weekStartStr);
     }
 
     // 提交奖金视图
@@ -1145,11 +1268,14 @@
         const rid = document.getElementById('commissionReceptionist').value;
         const newRate = parseFloat(document.getElementById('newRate').value);
         if (!rid || !newRate) return;
+
+        const startDate = new Date();  // buff开始时间：现在
         const expiryDate = new Date();
-        expiryDate.setDate(expiryDate.getDate() + 7);
+        expiryDate.setDate(expiryDate.getDate() + 7);  // buff结束时间：7天后
 
         await DataStore.updateReceptionist(rid, {
           commissionRate: newRate,
+          commissionStartDate: startDate.toISOString(),
           commissionExpiry: expiryDate.toISOString()
         });
 

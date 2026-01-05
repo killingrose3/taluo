@@ -109,15 +109,21 @@
       // 计算未读通知数量
       unreadCount = announcements.filter(a => !readAnnouncements.includes(a.id)).length;
 
-      // 结算逻辑
-      const lastSettlementTime = currentReceptionist.lastSettlementDate ? new Date(currentReceptionist.lastSettlementDate).getTime() : 0;
-      const weekStart = getWeekStart().getTime();
-      const taskStartTime = Math.max(weekStart, lastSettlementTime);
+      // 结算逻辑 - 每周一自动重置
+      const weekStartTime = getWeekStart().getTime();
+      let lastSettlementTime = currentReceptionist.lastSettlementDate ? new Date(currentReceptionist.lastSettlementDate).getTime() : 0;
 
-      // 周期内订单
+      // 如果上次结算在本周之前，强制视为本周开始时结算（每周一自动重置）
+      if (lastSettlementTime < weekStartTime) {
+        lastSettlementTime = weekStartTime;
+      }
+
+      const taskStartTime = lastSettlementTime;
+
+      // 周期内订单（从上次结算后开始计算）
       const weeklyOrders = userOrders.filter(o => {
         const orderTime = new Date(o.createdAt).getTime();
-        return orderTime > lastSettlementTime && orderTime >= weekStart;
+        return orderTime > lastSettlementTime;
       });
 
       const weeklyMonthlyOrders = weeklyOrders.filter(o => o.type === 'monthly').length;
@@ -259,7 +265,13 @@
     }
 
     function calculateBalanceSync(orders, penalties, receptionist, taskComplete, taskBonusStatus = {}) {
-      const lastSettlementTime = receptionist.lastSettlementDate ? new Date(receptionist.lastSettlementDate).getTime() : 0;
+      const weekStartTime = getWeekStart().getTime();
+      let lastSettlementTime = receptionist.lastSettlementDate ? new Date(receptionist.lastSettlementDate).getTime() : 0;
+
+      // 每周一自动重置：如果上次结算在本周之前，强制视为本周开始时结算
+      if (lastSettlementTime < weekStartTime) {
+        lastSettlementTime = weekStartTime;
+      }
 
       const userOrders = orders.filter(o =>
         o.approved !== false &&
@@ -330,7 +342,13 @@
           html += '<div class="balance-detail-item"><span class="balance-detail-label">🎉 奖金</span>' +
             '<span style="color: var(--bonus); font-weight: 600;">+¥' + order.amount.toFixed(2) + '</span></div>';
         } else if (order.type !== 'monthly' && order.type !== 'deduct_prepaid') {
-          var rate = receptionist.commissionExpiry && new Date(receptionist.commissionExpiry) > new Date(order.date)
+          // 判断订单创建时是否在提成buff有效期内（开始日期到结束日期之间）
+          var orderTime = order.createdAt ? new Date(order.createdAt) : new Date(order.date);
+          var buffStart = receptionist.commissionStartDate ? new Date(receptionist.commissionStartDate) : null;
+          var buffEnd = receptionist.commissionExpiry ? new Date(receptionist.commissionExpiry) : null;
+          var isInBuffPeriod = buffStart && buffEnd && orderTime >= buffStart && orderTime <= buffEnd;
+          
+          var rate = isInBuffPeriod
             ? receptionist.commissionRate
             : (order.type === 'normal' ? 5 : order.type === 'gift' ? 10 : 5);
           var commission = order.amount * (rate / 100);

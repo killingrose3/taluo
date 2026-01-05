@@ -88,9 +88,23 @@ function calculateCommission(order, receptionist) {
   if (order.type === 'monthly') return 0;
   if (order.type === 'deduct_prepaid') return 0;
   if (order.type === 'bonus') return order.amount;
-  const rate = receptionist.commission_expiry && new Date(receptionist.commission_expiry) > new Date()
-    ? receptionist.commission_rate
-    : (order.type === 'normal' ? 5 : order.type === 'gift' ? 10 : 5);
+
+  // 兼容两种字段命名方式（驼峰和下划线）
+  const commissionExpiry = receptionist.commissionExpiry || receptionist.commission_expiry;
+  const commissionRate = receptionist.commissionRate || receptionist.commission_rate;
+  const commissionStartDate = receptionist.commissionStartDate || receptionist.commission_start_date;
+
+  // 获取订单创建时间
+  const orderTime = order.createdAt ? new Date(order.createdAt) : new Date(order.date);
+
+  // buff只在有效期内生效：订单时间必须在 startDate 和 expiry 之间
+  const buffStart = commissionStartDate ? new Date(commissionStartDate) : null;
+  const buffEnd = commissionExpiry ? new Date(commissionExpiry) : null;
+
+  const isInBuffPeriod = buffStart && buffEnd &&
+    orderTime >= buffStart && orderTime <= buffEnd;
+
+  const rate = isInBuffPeriod ? commissionRate : (order.type === 'normal' ? 5 : order.type === 'gift' ? 10 : 5);
   return order.amount * (rate / 100);
 }
 
@@ -182,6 +196,7 @@ const DataStore = {
       isIntern: u.is_intern,
       commissionRate: u.commission_rate,
       commissionExpiry: u.commission_expiry,
+      commissionStartDate: u.commission_start_date,
       isDeleted: u.is_deleted,
       lastSettlementDate: u.last_settlement_date,
       backupSettlementDate: u.backup_settlement_date,
@@ -234,6 +249,7 @@ const DataStore = {
     const dbUpdates = {};
     if (updates.isIntern !== undefined) dbUpdates.is_intern = updates.isIntern;
     if (updates.commissionRate !== undefined) dbUpdates.commission_rate = updates.commissionRate;
+    if (updates.commissionStartDate !== undefined) dbUpdates.commission_start_date = updates.commissionStartDate;
     if (updates.commissionExpiry !== undefined) dbUpdates.commission_expiry = updates.commissionExpiry;
     if (updates.isDeleted !== undefined) dbUpdates.is_deleted = updates.isDeleted;
     if (updates.lastSettlementDate !== undefined) dbUpdates.last_settlement_date = updates.lastSettlementDate;
