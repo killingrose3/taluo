@@ -84,7 +84,7 @@ function getOrderTypeBgColor(type) {
 }
 
 // ============ 提成计算函数 ============
-function calculateCommission(order, receptionist) {
+function calculateCommission(order, receptionist, normalRateOverride) {
   if (order.type === 'monthly') return 0;
   if (order.type === 'deduct_prepaid') return 0;
   if (order.type === 'bonus') return order.amount;
@@ -104,7 +104,10 @@ function calculateCommission(order, receptionist) {
   const isInBuffPeriod = buffStart && buffEnd &&
     orderTime >= buffStart && orderTime <= buffEnd;
 
-  const rate = isInBuffPeriod ? commissionRate : (order.type === 'normal' ? 5 : order.type === 'gift' ? 10 : 5);
+  // 基础提成：正常单 5%（除非有覆盖），礼物单 10%，其他 5%
+  const baseRate = order.type === 'normal' ? (normalRateOverride || 5) : (order.type === 'gift' ? 10 : 5);
+
+  const rate = isInBuffPeriod ? Math.max(commissionRate, baseRate) : baseRate;
   return order.amount * (rate / 100);
 }
 

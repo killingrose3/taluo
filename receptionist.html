@@ -278,12 +278,16 @@
         new Date(o.createdAt).getTime() > lastSettlementTime
       );
 
+      // 统计本周期正单数量（已审核）
+      const normalOrderCount = userOrders.filter(o => o.type === 'normal').length;
+      const normalRateOverride = normalOrderCount > 5 ? 10 : 5;
+
       let balance = 0;
       userOrders.forEach(order => {
         if (order.type === 'bonus') {
           balance += order.amount;
         } else if (order.type !== 'monthly' && order.type !== 'deduct_prepaid') {
-          balance += calculateCommission(order, receptionist);
+          balance += calculateCommission(order, receptionist, normalRateOverride);
         }
       });
 
@@ -337,6 +341,10 @@
         }
       }
 
+      // 统计正单数量用于明细展示
+      const normalOrderCount = orders.filter(o => o.type === 'normal').length;
+      const normalRateOverride = normalOrderCount > 5 ? 10 : 5;
+
       orders.forEach(function (order) {
         if (order.type === 'bonus') {
           html += '<div class="balance-detail-item"><span class="balance-detail-label">🎉 奖金</span>' +
@@ -347,10 +355,13 @@
           var buffStart = receptionist.commissionStartDate ? new Date(receptionist.commissionStartDate) : null;
           var buffEnd = receptionist.commissionExpiry ? new Date(receptionist.commissionExpiry) : null;
           var isInBuffPeriod = buffStart && buffEnd && orderTime >= buffStart && orderTime <= buffEnd;
-          
+
+          // 基础提成：正常单 5%（除非有覆盖），礼物单 10%，其他 5%
+          var baseRate = order.type === 'normal' ? normalRateOverride : (order.type === 'gift' ? 10 : 5);
+
           var rate = isInBuffPeriod
-            ? receptionist.commissionRate
-            : (order.type === 'normal' ? 5 : order.type === 'gift' ? 10 : 5);
+            ? Math.max(receptionist.commissionRate, baseRate)
+            : baseRate;
           var commission = order.amount * (rate / 100);
           var icons = { normal: '📦', gift: '🎁', prepaid: '💳' };
           html += '<div class="balance-detail-item"><span class="balance-detail-label">' + (icons[order.type] || '📦') + ' ' + getOrderTypeName(order.type) + '</span>' +

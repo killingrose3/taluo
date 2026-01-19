@@ -777,8 +777,14 @@
         if (!a.isSettled && b.isSettled) return -1;
 
         // 计算金额
-        const amountA = a.orders.reduce((sum, o) => sum + calculateCommission(o, a.receptionist || {}), 0);
-        const amountB = b.orders.reduce((sum, o) => sum + calculateCommission(o, b.receptionist || {}), 0);
+        const amountA = a.orders.reduce((sum, o) => {
+          const nOcc = a.orders.filter(ord => ord.type === 'normal').length;
+          return sum + calculateCommission(o, a.receptionist || {}, nOcc > 5 ? 10 : 5);
+        }, 0);
+        const amountB = b.orders.reduce((sum, o) => {
+          const nOcc = b.orders.filter(ord => ord.type === 'normal').length;
+          return sum + calculateCommission(o, b.receptionist || {}, nOcc > 5 ? 10 : 5);
+        }, 0);
 
         // 有金额的优先，金额大的优先
         if (amountA === 0 && amountB > 0) return 1;
@@ -831,11 +837,13 @@
         const monthlyTaskComplete = stats.monthly >= 9;
 
         // 计算单子提成
+        const normalOrderCount = rOrders.filter(o => o.type === 'normal').length;
+        const normalRateOverride = normalOrderCount > 5 ? 10 : 5;
+
         let orderCommission = 0;
         rOrders.forEach(order => {
           if (order.type !== 'bonus' && order.type !== 'monthly') {
-            const rate = r.commissionExpiry && new Date(r.commissionExpiry) > new Date(order.date) ? r.commissionRate : (order.type === 'normal' ? 5 : order.type === 'gift' ? 10 : 5);
-            orderCommission += order.amount * (rate / 100);
+            orderCommission += calculateCommission(order, r || { commissionRate: 5 }, normalRateOverride);
           }
         });
 
