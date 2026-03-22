@@ -107,8 +107,10 @@
 
       const { userOrders, penalties, announcements, readAnnouncements, currentReceptionist } = cachedData;
 
-      // 计算未读通知数量
-      unreadCount = announcements.filter(a => !readAnnouncements.includes(a.id)).length;
+      // 计算未读通知数量（仅计算7天内展示的通知）
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      unreadCount = announcements.filter(a => new Date(a.createdAt) >= sevenDaysAgo && !readAnnouncements.includes(a.id)).length;
 
       // 结算逻辑 - 每周一自动重置
       const weekStartTime = getWeekStart().getTime();
