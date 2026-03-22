@@ -187,7 +187,7 @@
         if (r) {
           if (o.type === 'bonus') {
             recComm = o.amount;
-          } else if (o.type !== 'monthly' && o.type !== 'deduct_prepaid') {
+          } else if (o.type !== 'monthly' && o.type !== 'prepaid') {
             recComm = calculateCommission(o, r);
           }
         }
@@ -474,9 +474,9 @@
             } else if (order.type === 'bonus') {
               recComm = order.amount;
             } else if (order.type === 'prepaid') {
-              const diviners = cachedData.receptionists || []; // just for context if needed, but calculateStudioIncomeForOrder handles it
-              recComm = calculateCommission(order, r || { commissionRate: 5 });
-              stuComm = calculateStudioIncomeForOrder(order, recComm, cachedData.diviners || []);
+              // 预存单：只记录余额，不计算任何提成
+              recComm = 0;
+              stuComm = 0;
               divComm = 0;
             } else {
               const diviners = cachedData.diviners || [];
@@ -682,8 +682,9 @@
           } else if (o.type === 'bonus') {
             recComm = o.amount;
           } else if (o.type === 'prepaid') {
-            recComm = calculateCommission(o, r);
-            stuComm = calculateStudioIncomeForOrder(o, recComm, diviners);
+            // 预存单：只记录余额，不计算任何提成
+            recComm = 0;
+            stuComm = 0;
             divComm = 0;
           } else {
             recComm = calculateCommission(o, r);
@@ -1495,7 +1496,7 @@
       const weekStart = getWeekStart();
 
       const getWeeklyMonthlyCount = (rid) => orders.filter(o => o.receptionistId === rid && o.type === 'monthly' && new Date(o.date) >= weekStart && o.approved !== false).length;
-      const getWeeklyFlow = (rid) => orders.filter(o => o.receptionistId === rid && (o.type === 'normal' || o.type === 'prepaid') && new Date(o.date) >= weekStart && o.approved !== false).reduce((sum, o) => sum + (o.amount || 0), 0);
+      const getWeeklyFlow = (rid) => orders.filter(o => o.receptionistId === rid && (o.type === 'normal' || o.type === 'deduct_prepaid' || o.type === 'gift') && new Date(o.date) >= weekStart && o.approved !== false).reduce((sum, o) => sum + (o.amount || 0), 0);
 
       const redZone = receptionists.filter(r => getWeeklyMonthlyCount(r.id) < 3);
       const greenZone = receptionists.filter(r => getWeeklyMonthlyCount(r.id) >= 3);
@@ -1831,14 +1832,14 @@
               } else if (o.type === 'bonus') {
                 recComm = o.amount;
               } else if (o.type === 'prepaid') {
-                recComm = calculateCommission(o, rec || {});
-                stuComm = calculateStudioIncomeForOrder(o, recComm, diviners);
-              } else if (['normal', 'gift'].includes(o.type)) {
+                // 预存单：只记录余额，不计算任何提成
+                recComm = 0;
+                stuComm = 0;
+                divComm = 0;
+              } else if (['normal', 'gift', 'deduct_prepaid'].includes(o.type)) {
                 recComm = calculateCommission(o, rec || {});
                 stuComm = calculateStudioIncomeForOrder(o, recComm, diviners);
                 divComm = (o.amount || 0) - recComm - stuComm;
-              } else if (o.type === 'deduct_prepaid') {
-                divComm = o.amount;
               }
 
               return `
@@ -2139,7 +2140,7 @@
           // 计算累计流水（不含奖励和月卡单）
           const totalAmount = rOrders.reduce((sum, o) => {
             if (o.type === 'monthly') return sum + 9.9;
-            if (['normal', 'gift', 'deduct_prepaid', 'prepaid'].includes(o.type)) return sum + (o.amount || 0);
+            if (['normal', 'gift', 'deduct_prepaid'].includes(o.type)) return sum + (o.amount || 0);
             return sum;
           }, 0);
 
@@ -2173,9 +2174,6 @@
             if (o.type === 'monthly' || o.type === 'prepaid' || o.type === 'bonus') return sum;
 
             const amount = o.amount || 0;
-            if (o.type === 'deduct_prepaid') {
-              return sum + amount;
-            }
 
             const rec = receptionists.find(r => r.id === o.receptionistId) || { commissionRate: 5 };
             const recComm = calculateCommission(o, rec);
@@ -2728,7 +2726,7 @@
       const totalAmount = orders.reduce((sum, o) => {
         // 只统计有金额的单子 (正常、礼物、预存)，月卡按 9.9
         if (o.type === 'monthly') return sum + 9.9;
-        if (['normal', 'gift', 'deduct_prepaid', 'prepaid'].includes(o.type)) return sum + (o.amount || 0);
+        if (['normal', 'gift', 'deduct_prepaid'].includes(o.type)) return sum + (o.amount || 0);
         return sum;
       }, 0);
 
@@ -2806,12 +2804,8 @@
         if (o.type === 'monthly' || o.type === 'prepaid' || o.type === 'bonus') return sum;
 
         const amount = o.amount || 0;
-        // 扣除存单：占卜师拿全部
-        if (o.type === 'deduct_prepaid') {
-          return sum + amount;
-        }
 
-        // 正常单/礼物单
+        // 正常单/礼物单/扣除存单：计算占卜师分成
         const rec = receptionists.find(r => r.id === o.receptionistId) || { commissionRate: 5 };
         const recComm = calculateCommission(o, rec);
         const stuComm = calculateStudioIncomeForOrder(o, recComm, cachedData.diviners || []);

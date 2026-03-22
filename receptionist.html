@@ -134,7 +134,7 @@
       const taskComplete = weeklyMonthlyOrders >= 3;
 
       const weeklyFlow = weeklyOrders
-        .filter(o => o.type === 'normal' || o.type === 'prepaid' || o.type === 'gift')
+        .filter(o => o.type === 'normal' || o.type === 'deduct_prepaid' || o.type === 'gift')
         .reduce((sum, o) => sum + (o.amount || 0), 0);
 
       const weeklyPrepaid = weeklyOrders
@@ -425,7 +425,7 @@
       // 额外奖励（里程碑任务，独立于强制任务）
       if (taskBonusStatus) {
         // 周流水 500
-        const getFlow = (os) => os.reduce((s, o) => s + (o.type === 'monthly' ? 9.9 : (o.type === 'bonus' ? 0 : (o.amount || 0))), 0);
+        const getFlow = (os) => os.reduce((s, o) => s + (o.type === 'monthly' ? 9.9 : (o.type === 'bonus' || o.type === 'prepaid' ? 0 : (o.amount || 0))), 0);
         if (getFlow(weeklyOrders) >= 500 && getFlow(previousOrders) < 500) {
           balance += 15;
           taskBonusStatus.weeklyFlowComplete = true;
@@ -487,7 +487,7 @@
         if (order.type === 'bonus') {
           html += '<div class="balance-detail-item"><span class="balance-detail-label">🎉 奖金</span>' +
             '<span style="color: var(--bonus); font-weight: 600;">+¥' + order.amount.toFixed(2) + '</span></div>';
-        } else if (order.type !== 'monthly') {
+        } else if (order.type !== 'monthly' && order.type !== 'prepaid') {
           var commission = calculateCommission(order, receptionist, normalRateOverride);
           var icons = { normal: '📦', gift: '🎁', prepaid: '💳', deduct_prepaid: '🪙' };
           html += '<div class="balance-detail-item"><span class="balance-detail-label">' + (icons[order.type] || '📦') + ' ' + getOrderTypeName(order.type) + '</span>' +

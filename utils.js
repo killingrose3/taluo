@@ -86,7 +86,7 @@ function getOrderTypeBgColor(type) {
 // ============ 提成计算函数 ============
 function calculateCommission(order, receptionist, normalRateOverride) {
   if (order.type === 'monthly') return 0;
-  if (order.type === 'deduct_prepaid') return 0;
+  if (order.type === 'prepaid') return 0;
   if (order.type === 'bonus') return order.amount;
 
   // 获取订单创建时间
@@ -142,7 +142,7 @@ function calculateStudioIncomeForOrder(order, recComm = 0, diviners = []) {
   switch (order.type) {
     case 'normal':
     case 'gift':
-    case 'prepaid':
+    case 'deduct_prepaid':
       if (diviner && diviner.commissionRate !== undefined) {
         // 如果有设定的占卜师（非虎虎），且有提成比例
         // 占卜师提成 = 订单金额 * 提成比例
@@ -155,7 +155,7 @@ function calculateStudioIncomeForOrder(order, recComm = 0, diviners = []) {
       return order.amount * 0.25;
       
     case 'monthly': return 9.9;
-    case 'deduct_prepaid': return 0;
+    case 'prepaid': return 0;
     case 'bonus': return 0;
     default: return 0;
   }
@@ -170,7 +170,7 @@ function calculateTotalStudioIncome(orders, diviners = [], receptionists = []) {
     if (r) {
       if (o.type === 'bonus') {
         recComm = o.amount;
-      } else if (o.type !== 'monthly' && o.type !== 'deduct_prepaid') {
+      } else if (o.type !== 'monthly' && o.type !== 'prepaid') {
         // 近似计算（如果没有具体的 normalRateOverride 传参，默认5/10）
         recComm = calculateCommission(o, r);
       }
