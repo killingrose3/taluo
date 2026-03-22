@@ -30,6 +30,16 @@ CREATE TYPE bonus_type AS ENUM (
   'weeklyReward'    -- 周任务奖励
 );
 
+CREATE TYPE receptionist_title AS ENUM (
+  'intern_receptionist',
+  'regular_receptionist',
+  'senior_receptionist'
+);
+
+CREATE TYPE payment_method AS ENUM ('wechat', 'alipay');
+
+CREATE TYPE studio_transaction_type AS ENUM ('income', 'expense');
+
 -- ============================================
 -- 2. 创建用户表 (users)
 -- ============================================
@@ -46,6 +56,9 @@ CREATE TABLE users (
   -- 员工状态
   is_intern BOOLEAN DEFAULT true,          -- 是否实习 (实习底薪20元, 正式40元)
   is_deleted BOOLEAN DEFAULT false,        -- 软删除标记 (注销员工)
+  receptionist_title receptionist_title DEFAULT 'intern_receptionist',
+  champion_expiry TIMESTAMPTZ,
+  last_title_review_month VARCHAR(7),
   
   -- 提成设置
   commission_rate DECIMAL(5, 2) DEFAULT 5.00,   -- 基础提成比例 (默认5%)
@@ -95,6 +108,7 @@ CREATE TABLE orders (
   amount DECIMAL(10, 2) DEFAULT 0,         -- 订单金额
   question_content TEXT,                    -- 问题描述
   bonus_type bonus_type,                    -- 奖金类型 (仅 type='bonus' 时使用)
+  payment_method payment_method,
   
   -- 审核状态
   approved BOOLEAN DEFAULT false,          -- true:已通过, false:待审核
@@ -114,6 +128,23 @@ CREATE INDEX idx_orders_date ON orders(date);
 CREATE INDEX idx_orders_type ON orders(type);
 CREATE INDEX idx_orders_approved ON orders(approved);
 CREATE INDEX idx_orders_created_at ON orders(created_at);
+
+CREATE TABLE diviners (
+  id BIGSERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL UNIQUE,
+  commission_rate DECIMAL(5, 2) NOT NULL DEFAULT 55.00,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE studio_transactions (
+  id BIGSERIAL PRIMARY KEY,
+  type studio_transaction_type NOT NULL,
+  amount DECIMAL(10, 2) NOT NULL,
+  payment_method payment_method NOT NULL,
+  reason VARCHAR(500) NOT NULL,
+  date DATE NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
 -- ============================================
 -- 4. 创建惩罚表 (penalties)
@@ -360,6 +391,8 @@ ALTER TABLE penalties ENABLE ROW LEVEL SECURITY;
 ALTER TABLE announcements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE read_announcements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE weekly_settlements ENABLE ROW LEVEL SECURITY;
+ALTER TABLE diviners ENABLE ROW LEVEL SECURITY;
+ALTER TABLE studio_transactions ENABLE ROW LEVEL SECURITY;
 
 -- 用户表策略
 CREATE POLICY "Users are viewable by everyone" ON users
@@ -417,6 +450,28 @@ CREATE POLICY "Managers can manage penalties" ON penalties
   FOR ALL USING (
     EXISTS (
       SELECT 1 FROM users 
+      WHERE id::text = auth.uid()::text AND role = 'manager'
+    )
+  );
+
+CREATE POLICY "Diviners viewable by authenticated" ON diviners
+  FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "Managers can manage diviners" ON diviners
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM users
+      WHERE id::text = auth.uid()::text AND role = 'manager'
+    )
+  );
+
+CREATE POLICY "Studio transactions viewable by authenticated" ON studio_transactions
+  FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "Managers can manage studio transactions" ON studio_transactions
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM users
       WHERE id::text = auth.uid()::text AND role = 'manager'
     )
   );

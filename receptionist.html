@@ -64,6 +64,7 @@
     }
 
     async function initPage() {
+      await DataStore.evaluatePromotions(); // 独立打开前台也自动评估
       await loadData();
       renderPage();
     }
@@ -137,11 +138,11 @@
         .filter(o => o.type === 'prepaid')
         .reduce((sum, o) => sum + (o.amount || 0), 0);
 
-      // 计算任务奖励状态
+      // 计算任务奖励状态（初始全为false，calculateBalanceSync会在真正加钱时设为true）
       const taskBonusStatus = {
-        weeklyFlowComplete: weeklyFlow >= 500,
-        prepaidComplete: weeklyPrepaid >= 666,
-        monthlyCardComplete: weeklyMonthlyOrders >= 9
+        weeklyFlowComplete: false,
+        prepaidComplete: false,
+        monthlyCardComplete: false
       };
 
       // 计算余额
@@ -154,6 +155,22 @@
       if (currentReceptionist.commissionExpiry && new Date(currentReceptionist.commissionExpiry) > new Date()) {
         const d = new Date(currentReceptionist.commissionExpiry);
         buffHtml = '<p style="color: var(--accent); font-size: 13px; margin-top: 4px;">✨ 提成buff增加中～' + (d.getMonth() + 1) + '月' + d.getDate() + '日结束</p>';
+      }
+
+      const title = currentReceptionist.title || '实习接待';
+      const nowTime = new Date();
+      const isChampion = currentReceptionist.isChampion && currentReceptionist.championExpiry && nowTime <= new Date(currentReceptionist.championExpiry);
+      
+      let titleClass = 'intern';
+      if (title === '正式接待') titleClass = 'official';
+      if (title === '高级接待') titleClass = 'senior';
+      
+      const badges = [`<span class="title-badge title-badge-${titleClass}" style="line-height: normal;">${title}</span>`];
+      if (title !== '实习接待' && isChampion) {
+        const diffMs = new Date(currentReceptionist.championExpiry) - nowTime;
+        const remainDays = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+        badges.push(`<span class="title-badge title-badge-champion" style="line-height: normal;">销冠</span>`);
+        badges.push(`<span style="font-size: 11px; color: var(--accent); margin-left: 18px; line-height: normal;">剩余 ${remainDays} 天</span>`);
       }
 
       // 调试信息：显示上次结算时间
@@ -171,11 +188,15 @@
         '<p style="font-size: 10px; color: var(--text-muted); margin-bottom: 8px;">' + settlementDebug + '</p>' +
         '<div class="card mb-5">' +
         '<div class="user-card">' +
-        '<div class="user-avatar">' + user.emoji + '</div>' +
+        '<div class="user-avatar ' + (isChampion ? 'user-avatar-champion' : '') + '">' +
+        (isChampion ? '<span class="user-avatar-crown">👑</span><div class="user-avatar-wreath"><span class="wreath-item" style="--a:0deg">🌸</span><span class="wreath-item" style="--a:45deg">✨</span><span class="wreath-item" style="--a:90deg">🌼</span><span class="wreath-item" style="--a:135deg">🌿</span><span class="wreath-item" style="--a:180deg">🌸</span><span class="wreath-item" style="--a:225deg">✨</span><span class="wreath-item" style="--a:270deg">🌼</span><span class="wreath-item" style="--a:315deg">🌿</span></div>' : '') +
+        user.emoji + '</div>' +
         '<div class="user-info">' +
         '<div class="user-name">' + user.name +
         '<button class="notification-bubble" onclick="showAnnouncement()">📢 通知' + (unreadCount > 0 ? '<span class="notification-dot"></span>' : '') + '</button>' +
-        '</div><p class="user-role">职位：接待' + (currentReceptionist.isIntern ? '<span style="color: var(--warning); background: rgba(245, 158, 11, 0.15); padding: 2px 8px; border-radius: 4px; margin-left: 8px; font-size: 12px;">正在实习期，加油中！！！</span>' : '') + '</p>' + buffHtml + '</div></div>';
+        '</div><div class="title-badge-row">' + badges.join('') + '</div>' +
+        (title === '实习接待' ? '<p class="user-role">正在实习期，加油中！！！</p>' : '') +
+        buffHtml + '</div></div>';
 
       html += '<div class="balance-card ' + (balanceData.taskFailed ? 'balance-card-failed' : 'balance-card-normal') + '" onclick="toggleBalanceDetail()">' +
         '<div class="balance-label">' +
@@ -185,7 +206,7 @@
         '<p class="balance-amount ' + (balanceData.taskFailed ? 'balance-amount-failed' : 'balance-amount-normal') + '">¥' + balanceData.amount.toFixed(2) + '</p>';
 
       if (balanceData.taskFailed) {
-        html += '<p style="color: var(--danger); font-size: 14px; margin-top: 12px;">未完成任务TvT 联系运营好么宝宝</p>';
+        html += '<p style="color: var(--danger); font-size: 14px; margin-top: 12px;">本周任务未完成，所以这周没有底薪哦宝宝</p>';
       }
 
       if (showBalanceDetail && !balanceData.taskFailed) {
@@ -223,9 +244,10 @@
           '<div class="progress-bar"><div class="progress-fill progress-fill-warning" style="width: ' + Math.min(weeklyMonthlyOrders / 3 * 100, 100) + '%"></div></div>' +
           '<span class="text-sm text-muted">' + weeklyMonthlyOrders + '/3 月卡单</span>' +
           '</div>' +
-          '<p style="font-size: 13px; color: var(--danger);">⚠️ 未完成任务将导致本周提成清零</p>';
+          '<p style="font-size: 13px; color: var(--danger);">⚠️ 未完成任务将导致本周无底薪</p>';
       } else {
         html += '<h3 style="font-size: 16px; margin-bottom: 8px; color: var(--success);">🎉 周任务已完成 太棒啦宝宝!</h3>';
+        html += '<p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">解锁任务后有超简单的任务 加油啊！！！</p>';
 
         // 任务1
         html += '<div class="task-block"><p style="font-size: 14px; margin-bottom: 8px;">1️⃣ 周流水达到500</p>' +
@@ -273,23 +295,65 @@
         lastSettlementTime = weekStartTime;
       }
 
-      const userOrders = orders.filter(o =>
+      // 1. 本周所有订单（从周一开始）
+      const weeklyOrders = orders.filter(o =>
         o.approved !== false &&
+        new Date(o.createdAt).getTime() >= weekStartTime
+      );
+
+      // 上次结算前的订单
+      const previousOrders = weeklyOrders.filter(o =>
+        new Date(o.createdAt).getTime() <= lastSettlementTime
+      );
+
+      // 本次待结算订单
+      const currentOrders = weeklyOrders.filter(o =>
         new Date(o.createdAt).getTime() > lastSettlementTime
       );
 
-      // 统计本周期正单数量（已审核）
-      const normalOrderCount = userOrders.filter(o => o.type === 'normal').length;
-      const normalRateOverride = normalOrderCount > 5 ? 10 : 5;
+      // 2. 判断提成比例（基于周总正单数）
+      const weeklyNormalCount = weeklyOrders.filter(o => o.type === 'normal').length;
+      const normalRateOverride = weeklyNormalCount > 5 ? 10 : 5;
 
+      // 3. 计算余额
       let balance = 0;
-      userOrders.forEach(order => {
+      currentOrders.forEach(order => {
         if (order.type === 'bonus') {
           balance += order.amount;
-        } else if (order.type !== 'monthly' && order.type !== 'deduct_prepaid') {
+        } else if (order.type !== 'monthly') {
           balance += calculateCommission(order, receptionist, normalRateOverride);
         }
       });
+
+      // 4. 判断任务奖励（仅在跨过门槛时发放）
+      // 底薪
+      const prevMonthly = previousOrders.filter(o => o.type === 'monthly').length;
+      const totalMonthly = weeklyOrders.filter(o => o.type === 'monthly').length;
+      const baseSalary = getReceptionistBaseSalary(receptionist);
+      if (totalMonthly >= 3 && prevMonthly < 3) {
+        balance += baseSalary;
+      }
+
+      // 额外奖励（里程碑任务，独立于强制任务）
+      if (taskBonusStatus) {
+        // 周流水 500
+        const getFlow = (os) => os.reduce((s, o) => s + (o.type === 'monthly' ? 9.9 : (o.type === 'bonus' ? 0 : (o.amount || 0))), 0);
+        if (getFlow(weeklyOrders) >= 500 && getFlow(previousOrders) < 500) {
+          balance += 15;
+          taskBonusStatus.weeklyFlowComplete = true;
+        }
+        // 预存 666
+        const getPrepaid = (os) => os.filter(o => o.type === 'prepaid').reduce((s, o) => s + (o.amount || 0), 0);
+        if (getPrepaid(weeklyOrders) >= 666 && getPrepaid(previousOrders) < 666) {
+          balance += 15;
+          taskBonusStatus.prepaidComplete = true;
+        }
+        // 9个月卡
+        if (totalMonthly >= 9 && prevMonthly < 9) {
+          balance += 15;
+          taskBonusStatus.monthlyCardComplete = true;
+        }
+      }
 
       // 减去惩罚
       penalties.forEach(p => {
@@ -299,21 +363,7 @@
         }
       });
 
-      if (isAfterSundayDeadline() && !taskComplete) {
-        return { amount: 0, taskFailed: true, taskBonusStatus };
-      }
-
-      if (taskComplete) {
-        const baseSalary = receptionist.isIntern ? 20 : 40;
-        balance += baseSalary;
-
-        // 任务奖励：每个完成的任务 +15
-        if (taskBonusStatus.weeklyFlowComplete) balance += 15;
-        if (taskBonusStatus.prepaidComplete) balance += 15;
-        if (taskBonusStatus.monthlyCardComplete) balance += 15;
-      }
-
-      return { amount: Math.round(balance * 100) / 100, taskFailed: false, taskBonusStatus };
+      return { amount: Math.round(balance * 100) / 100, taskFailed: isAfterSundayDeadline() && !taskComplete, taskBonusStatus };
     }
 
     function renderBalanceDetail(orders, penalties, receptionist, balanceData, taskComplete) {
@@ -321,23 +371,23 @@
         '<h4 style="font-size: 14px; margin-bottom: 12px; color: var(--text);">💰 余额来源明细</h4>';
 
       if (taskComplete) {
-        html += '<div class="balance-detail-item"><span class="balance-detail-label">🎯 底薪（' + (receptionist.isIntern ? '实习' : '正式') + '）</span>' +
-          '<span style="color: var(--success); font-weight: 600;">+¥' + (receptionist.isIntern ? '20.00' : '40.00') + '</span></div>';
+        html += '<div class="balance-detail-item"><span class="balance-detail-label">🎯 底薪（' + getReceptionistTitleLabel(receptionist) + '）</span>' +
+          '<span style="color: var(--success); font-weight: 600;">+¥' + getReceptionistBaseSalary(receptionist).toFixed(2) + '</span></div>';
+      }
 
-        // 显示任务奖励
-        if (balanceData.taskBonusStatus) {
-          if (balanceData.taskBonusStatus.weeklyFlowComplete) {
-            html += '<div class="balance-detail-item"><span class="balance-detail-label">🏆 周流水500奖励</span>' +
-              '<span style="color: var(--success); font-weight: 600;">+¥15.00</span></div>';
-          }
-          if (balanceData.taskBonusStatus.prepaidComplete) {
-            html += '<div class="balance-detail-item"><span class="balance-detail-label">🏆 老板预存666奖励</span>' +
-              '<span style="color: var(--success); font-weight: 600;">+¥15.00</span></div>';
-          }
-          if (balanceData.taskBonusStatus.monthlyCardComplete) {
-            html += '<div class="balance-detail-item"><span class="balance-detail-label">🏆 9月卡单奖励</span>' +
-              '<span style="color: var(--success); font-weight: 600;">+¥15.00</span></div>';
-          }
+      // 里程碑任务奖金（有完成的就显示）
+      if (balanceData.taskBonusStatus) {
+        if (balanceData.taskBonusStatus.weeklyFlowComplete) {
+          html += '<div class="balance-detail-item"><span class="balance-detail-label">🏆 任务奖金（周流水500）</span>' +
+            '<span style="color: var(--success); font-weight: 600;">+¥15.00</span></div>';
+        }
+        if (balanceData.taskBonusStatus.prepaidComplete) {
+          html += '<div class="balance-detail-item"><span class="balance-detail-label">🏆 任务奖金（预存666）</span>' +
+            '<span style="color: var(--success); font-weight: 600;">+¥15.00</span></div>';
+        }
+        if (balanceData.taskBonusStatus.monthlyCardComplete) {
+          html += '<div class="balance-detail-item"><span class="balance-detail-label">🏆 任务奖金（月卡9单）</span>' +
+            '<span style="color: var(--success); font-weight: 600;">+¥15.00</span></div>';
         }
       }
 
@@ -349,21 +399,9 @@
         if (order.type === 'bonus') {
           html += '<div class="balance-detail-item"><span class="balance-detail-label">🎉 奖金</span>' +
             '<span style="color: var(--bonus); font-weight: 600;">+¥' + order.amount.toFixed(2) + '</span></div>';
-        } else if (order.type !== 'monthly' && order.type !== 'deduct_prepaid') {
-          // 判断订单创建时是否在提成buff有效期内（开始日期到结束日期之间）
-          var orderTime = order.createdAt ? new Date(order.createdAt) : new Date(order.date);
-          var buffStart = receptionist.commissionStartDate ? new Date(receptionist.commissionStartDate) : null;
-          var buffEnd = receptionist.commissionExpiry ? new Date(receptionist.commissionExpiry) : null;
-          var isInBuffPeriod = buffStart && buffEnd && orderTime >= buffStart && orderTime <= buffEnd;
-
-          // 基础提成：正常单 5%（除非有覆盖），礼物单 10%，其他 5%
-          var baseRate = order.type === 'normal' ? normalRateOverride : (order.type === 'gift' ? 10 : 5);
-
-          var rate = isInBuffPeriod
-            ? Math.max(receptionist.commissionRate, baseRate)
-            : baseRate;
-          var commission = order.amount * (rate / 100);
-          var icons = { normal: '📦', gift: '🎁', prepaid: '💳' };
+        } else if (order.type !== 'monthly') {
+          var commission = calculateCommission(order, receptionist, normalRateOverride);
+          var icons = { normal: '📦', gift: '🎁', prepaid: '💳', deduct_prepaid: '🪙' };
           html += '<div class="balance-detail-item"><span class="balance-detail-label">' + (icons[order.type] || '📦') + ' ' + getOrderTypeName(order.type) + '</span>' +
             '<span style="color: ' + getOrderTypeColor(order.type) + '; font-weight: 600;">+¥' + commission.toFixed(2) + '</span></div>';
         }

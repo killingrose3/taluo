@@ -40,6 +40,7 @@
     <script src="utils.js"></script>
     <script>
         let cachedOrders = [];
+        let cachedDiviners = [];
 
         // 检查登录状态
         const user = requireReceptionist();
@@ -51,7 +52,12 @@
 
         async function initPage() {
             // 预加载订单数据用于验证
-            cachedOrders = await DataStore.getOrders();
+            const [orders, diviners] = await Promise.all([
+                DataStore.getOrders(),
+                DataStore.getDiviners().catch(() => [])
+            ]);
+            cachedOrders = orders;
+            cachedDiviners = [{ name: '虎虎' }, ...diviners.filter(d => d.name !== '虎虎')];
             renderPage();
         }
 
@@ -93,7 +99,10 @@
             
             <div class="form-group" id="divinerGroup">
               <label class="form-label">占卜师名称</label>
-              <input type="text" id="divinerId" class="form-input" placeholder="请输入占卜师名称">
+              <select id="divinerId" class="form-select">
+                <option value="">请选择占卜师</option>
+                ${cachedDiviners.map(d => `<option value="${d.name}">${d.name}</option>`).join('')}
+              </select>
             </div>
             
             <div class="form-group" id="questionGroup">
@@ -105,6 +114,21 @@
               <label class="form-label">金额</label>
               <input type="number" id="amount" class="form-input" placeholder="请输入金额" step="0.01">
               <p class="form-hint" id="amountHint">允许金额：${allowedNormalAmounts.slice().sort((a, b) => a - b).join('、')}</p>
+            </div>
+
+            <div class="form-group" id="paymentMethodGroup">
+              <label class="form-label">收款方式</label>
+              <div class="payment-method-group" id="paymentMethodOptions">
+                <label class="payment-method-option" id="wechatOption">
+                  <input type="radio" name="paymentMethod" value="wechat">
+                  <span>微信</span>
+                </label>
+                <label class="payment-method-option" id="alipayOption">
+                  <input type="radio" name="paymentMethod" value="alipay">
+                  <span>支付宝</span>
+                </label>
+              </div>
+              <p class="form-hint">必须选择其中一个哦宝宝～</p>
             </div>
             
             <div class="form-group hidden" id="discountGroup">
@@ -231,6 +255,19 @@
             }
         }
 
+        function clearFieldError(id) {
+            const el = document.getElementById(id);
+            if (el) el.classList.remove('field-error');
+        }
+
+        document.getElementById('pageContent').addEventListener('change', function (e) {
+            if (e.target.name === 'paymentMethod') {
+                document.getElementById('paymentMethodOptions').classList.remove('field-error');
+                document.getElementById('wechatOption').classList.remove('field-error');
+                document.getElementById('alipayOption').classList.remove('field-error');
+            }
+        });
+
         // 同步计算老板余额（只计算已通过审核的订单）
         function getBossBalanceFromCache(bossName) {
             const bossOrders = cachedOrders.filter(o => o.bossName === bossName && o.approved === true);
@@ -251,18 +288,35 @@
                 const orderType = document.getElementById('orderType').value;
                 const bossName = document.getElementById('bossName').value.trim();
                 const amount = document.getElementById('amount').value;
+                const paymentMethod = document.querySelector('input[name="paymentMethod"]:checked')?.value;
                 const errorDiv = document.getElementById('errorMessage');
                 const submitBtn = document.getElementById('submitBtn');
 
+                ['bossName', 'amount', 'divinerId', 'questionContent'].forEach(clearFieldError);
+                document.getElementById('paymentMethodOptions').classList.remove('field-error');
+                document.getElementById('wechatOption').classList.remove('field-error');
+                document.getElementById('alipayOption').classList.remove('field-error');
+
                 // 验证
                 if (!bossName) {
+                    document.getElementById('bossName').classList.add('field-error');
                     errorDiv.textContent = '补药走，还没有填写完整呢(｡•́︿•̀｡)';
                     errorDiv.classList.remove('hidden');
                     return;
                 }
 
                 if (orderType !== 'monthly' && !amount) {
+                    document.getElementById('amount').classList.add('field-error');
                     errorDiv.textContent = '补药走，还没有填写完整呢(｡•́︿•̀｡)';
+                    errorDiv.classList.remove('hidden');
+                    return;
+                }
+
+                if (!paymentMethod) {
+                    document.getElementById('paymentMethodOptions').classList.add('field-error');
+                    document.getElementById('wechatOption').classList.add('field-error');
+                    document.getElementById('alipayOption').classList.add('field-error');
+                    errorDiv.textContent = '还没有完成这个哦宝宝quq';
                     errorDiv.classList.remove('hidden');
                     return;
                 }
@@ -287,12 +341,14 @@
 
                     const questionContent = document.getElementById('questionContent').value.trim();
                     if (!questionContent) {
+                        document.getElementById('questionContent').classList.add('field-error');
                         errorDiv.textContent = '扣除存单必须填写问题内容哦宝宝～';
                         errorDiv.classList.remove('hidden');
                         return;
                     }
                     const divinerId = document.getElementById('divinerId').value.trim();
                     if (!divinerId || divinerId === '无') {
+                        document.getElementById('divinerId').classList.add('field-error');
                         errorDiv.textContent = '扣除存单必须填写占卜师哦宝宝～';
                         errorDiv.classList.remove('hidden');
                         return;
@@ -303,6 +359,7 @@
                 if (orderType === 'normal') {
                     const questionContent = document.getElementById('questionContent').value.trim();
                     if (!questionContent) {
+                        document.getElementById('questionContent').classList.add('field-error');
                         errorDiv.textContent = '正常单必须填写问题内容哦宝宝～';
                         errorDiv.classList.remove('hidden');
                         return;
@@ -334,7 +391,8 @@
                         amount: finalAmount,  // 使用折后金额
                         originalAmount: hasDiscount ? originalAmount : null,  // 原价（如有折扣）
                         discount: discountValue,  // 折扣值（如 8 表示 8折）
-                        questionContent: (orderType === 'monthly' || orderType === 'prepaid') ? '' : document.getElementById('questionContent').value
+                        questionContent: (orderType === 'monthly' || orderType === 'prepaid') ? '' : document.getElementById('questionContent').value,
+                        paymentMethod: paymentMethod
                     };
 
                     const result = await submitOrder(orderData);

@@ -61,18 +61,21 @@
 
     async function initApp() {
       showLoading('pageContent');
+      await DataStore.evaluatePromotions(); // 每次登录/刷新自动评估升降级
       await loadAllData();
       renderHome();
     }
 
     async function loadAllData() {
-      const [orders, receptionists, penalties, announcements] = await Promise.all([
+      const [orders, receptionists, penalties, announcements, diviners, expenses] = await Promise.all([
         DataStore.getOrders(),
         DataStore.getReceptionists(),
         DataStore.getPenalties(),
-        DataStore.getAnnouncements()
+        DataStore.getAnnouncements(),
+        DataStore.getDiviners(),
+        DataStore.getExpenses()
       ]);
-      cachedData = { orders, receptionists, penalties, announcements };
+      cachedData = { orders, receptionists, penalties, announcements, diviners, expenses };
     }
 
     async function refreshData() {
@@ -102,6 +105,8 @@
         case 'receptionistDetail': renderReceptionistDetail(selectedReceptionist); break;
         case 'divinerDetail': renderDivinerDetail(selectedReceptionist); break;
         case 'monthlyFlowDetail': renderMonthlyFlowDetail(selectedReceptionist); break;
+        case 'divinerManagement': renderDivinerManagement(); break;
+        case 'studioFinance': renderStudioFinance(); break;
         default: renderHome();
       }
     }
@@ -121,7 +126,7 @@
         </div>
 
         ${currentView !== 'home' ? `
-          <button class="btn-text mb-4 flex items-center gap-2" onclick="setView('${(currentView === 'bossList' || currentView === 'bossDetail' || currentView === 'divinerDetail' || currentView === 'receptionistDetail') ? 'manageReceptionists' : (currentView === 'submitBonus' || currentView === 'modifyCommission') ? 'taskManagement' : 'home'}')">
+          <button class="btn-text mb-4 flex items-center gap-2" onclick="setView('${(currentView === 'bossList' || currentView === 'bossDetail' || currentView === 'divinerDetail' || currentView === 'receptionistDetail' || currentView === 'divinerManagement') ? 'manageReceptionists' : (currentView === 'submitBonus' || currentView === 'modifyCommission') ? 'taskManagement' : 'home'}')">
             ← 返回
           </button>
         ` : ''
@@ -145,16 +150,192 @@
             ${pendingCount > 0 ? `<span class="notification-dot" style="position: absolute; top: 8px; right: 8px;"></span>` : ''}
           </div>
           <button class="btn btn-primary btn-full" style="justify-content: flex-start;" onclick="setView('dailyIncome')">📊 查看收入明细（每日）</button>
+          <button class="btn btn-secondary btn-full" style="justify-content: flex-start;" onclick="setView('studioFinance')">💰 查看工作室总收入与支出</button>
           <button class="btn btn-secondary btn-full" style="justify-content: flex-start;" onclick="setView('monthlyFlow')">📈 当月接待累计流水</button>
           <button class="btn btn-secondary btn-full" style="justify-content: flex-start;" onclick="setView('taskManagement')">📋 周任务完成清单</button>
           <button class="btn btn-accent btn-full" style="justify-content: flex-start;" onclick="setView('weeklySettlement')">💵 周结算清单</button>
-          <button class="btn btn-secondary btn-full" style="justify-content: flex-start;" onclick="setView('manageReceptionists')">🔍 查找信息与补录与实习管理</button>
+          <button class="btn btn-secondary btn-full" style="justify-content: flex-start;" onclick="setView('manageReceptionists')">🔍 查找信息与补录与接待管理</button>
           <button class="btn btn-secondary btn-full" style="justify-content: flex-start;" onclick="setView('announcement')">📢 通知公告系统</button>
           <button class="btn btn-danger btn-full" style="justify-content: flex-start;" onclick="setView('penalty')">⚠️ 惩罚系统</button>
         </div>
       </div>`;
 
       document.getElementById('pageContent').innerHTML = html;
+    }
+
+    // 工作室总收入与支出
+    function renderStudioFinance() {
+      const orders = cachedData.orders.filter(o => o.approved !== false);
+      const expenses = cachedData.expenses || [];
+      const diviners = cachedData.diviners || [];
+      
+      // Calculate Pure Profit per payment method
+      let wechatIncome = 0;
+      let alipayIncome = 0;
+
+      orders.forEach(o => {
+        const r = cachedData.receptionists.find(rec => rec.id === o.receptionistId);
+        let recComm = 0;
+        if (r) {
+          if (o.type === 'bonus') {
+            recComm = o.amount;
+          } else if (o.type !== 'monthly' && o.type !== 'deduct_prepaid') {
+            recComm = calculateCommission(o, r);
+          }
+        }
+        
+        let profit = calculateStudioIncomeForOrder(o, recComm, diviners);
+        if (o.paymentMethod === 'alipay') {
+          alipayIncome += profit;
+        } else {
+          wechatIncome += profit;
+        }
+      });
+
+      // Calculate total expenses per method
+      const wechatExpense = expenses.filter(e => e.paymentMethod === 'wechat').reduce((sum, e) => sum + (e.amount || 0), 0);
+      const alipayExpense = expenses.filter(e => e.paymentMethod === 'alipay').reduce((sum, e) => sum + (e.amount || 0), 0);
+
+      const netWechat = wechatIncome - wechatExpense;
+      const netAlipay = alipayIncome - alipayExpense;
+      const totalIncome = wechatIncome + alipayIncome;
+      const totalExpense = wechatExpense + alipayExpense;
+      const totalNet = netWechat + netAlipay;
+
+      let html = renderHeader() + `
+        <div class="card">
+          <h2 style="font-size: 18px; margin-bottom: 24px;">💰 工作室总收入与支出</h2>
+          
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px;">
+            <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid var(--success); padding: 16px; border-radius: 12px; text-align: center;">
+              <div style="font-size: 14px; color: var(--success); margin-bottom: 8px;">微信净收入</div>
+              <div style="font-size: 24px; font-weight: bold; color: var(--success);">¥${netWechat.toFixed(2)}</div>
+            </div>
+            <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid #3b82f6; padding: 16px; border-radius: 12px; text-align: center;">
+              <div style="font-size: 14px; color: #3b82f6; margin-bottom: 8px;">支付宝净收入</div>
+              <div style="font-size: 24px; font-weight: bold; color: #3b82f6;">¥${netAlipay.toFixed(2)}</div>
+            </div>
+          </div>
+
+          <div style="background: var(--bg-light); padding: 16px; border-radius: 12px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <div style="font-size: 14px; color: var(--text-muted); margin-bottom: 4px;">总历史纯利润 (收入)</div>
+              <div style="font-size: 20px; font-weight: bold; color: var(--text);">¥${totalIncome.toFixed(2)}</div>
+            </div>
+            <div style="text-align: right;">
+              <div style="font-size: 14px; color: var(--danger); margin-bottom: 4px;">总历史支出</div>
+              <div style="font-size: 20px; font-weight: bold; color: var(--danger);">-¥${totalExpense.toFixed(2)}</div>
+            </div>
+          </div>
+          
+          <div style="background: var(--bg-light); padding: 16px; border-radius: 12px; margin-bottom: 24px; border: 1px solid var(--accent); text-align: center;">
+            <div style="font-size: 14px; color: var(--accent); margin-bottom: 4px;">总和净赚入兜</div>
+            <div style="font-size: 28px; font-weight: bold; color: var(--accent);">¥${totalNet.toFixed(2)}</div>
+          </div>
+
+          <button class="btn btn-primary btn-full" onclick="showExpenseModal()">📝 记录新支出</button>
+          
+          <h3 style="font-size: 16px; margin: 24px 0 12px;">💸 历史支出明细</h3>
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            ${expenses.length === 0 ? '<p class="text-muted text-center" style="padding: 20px 0;">暂无支出记录</p>' : ''}
+            ${expenses.map(e => `
+              <div style="background: var(--bg-light); padding: 12px 16px; border-radius: 8px; border-left: 3px solid var(--danger);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                  <span style="font-weight: 600;">${e.reason}</span>
+                  <div style="display: flex; align-items: center; gap: 10px;">
+                    <span style="color: var(--danger); font-weight: bold;">-¥${e.amount.toFixed(2)}</span>
+                    <button onclick="deleteExpenseRecord('${e.id}')" style="background: none; border: none; color: var(--danger); font-size: 16px; cursor: pointer; padding: 2px 4px; opacity: 0.7;" title="删除此支出">🗑</button>
+                  </div>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-muted);">
+                  <span>日期: ${e.date}</span>
+                  <span>方式: ${e.paymentMethod === 'alipay' ? '<span style="color: #3b82f6;">支付宝</span>' : '<span style="color: var(--success);">微信</span>'}</span>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- 记录支出 Modal -->
+        <div id="expenseModal" class="modal-overlay hidden">
+          <div class="card modal-content">
+            <h3 style="margin-bottom: 16px; color: var(--danger);">💸 记录支出</h3>
+            <form id="expenseForm" onsubmit="handleExpenseSubmit(event)">
+              <div class="form-group">
+                <label class="form-label">支出日期</label>
+                <input type="date" id="expenseDate" class="form-input" value="${getToday()}" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">支出原因</label>
+                <input type="text" id="expenseReason" class="form-input" placeholder="例如：购买塔罗牌" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">支出金额 (元)</label>
+                <input type="number" id="expenseAmount" class="form-input" min="0.01" step="0.01" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">支出方式</label>
+                <div style="display: flex; gap: 16px;">
+                  <label><input type="radio" name="expensePaymentMethod" value="wechat" checked> 微信</label>
+                  <label><input type="radio" name="expensePaymentMethod" value="alipay"> 支付宝</label>
+                </div>
+              </div>
+              <div class="flex gap-3 mt-4">
+                <button type="button" class="btn btn-secondary flex-1" onclick="closeExpenseModal()">取消</button>
+                <button type="submit" class="btn btn-danger flex-1">确认提交</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      `;
+
+      document.getElementById('pageContent').innerHTML = html;
+    }
+
+    function showExpenseModal() {
+      document.getElementById('expenseModal').classList.remove('hidden');
+    }
+
+    function closeExpenseModal() {
+      document.getElementById('expenseModal').classList.add('hidden');
+      document.getElementById('expenseForm').reset();
+    }
+
+    async function deleteExpenseRecord(id) {
+      if (!confirm('确定删除这条支出记录吗？')) return;
+      showLoadingOverlay();
+      const ok = await DataStore.deleteExpense(id);
+      hideLoadingOverlay();
+      if (ok) {
+        await refreshData();
+        renderStudioFinance();
+      } else {
+        alert('删除失败，请重试。');
+      }
+    }
+
+    async function handleExpenseSubmit(e) {
+      e.preventDefault();
+      
+      const date = document.getElementById('expenseDate').value;
+      const reason = document.getElementById('expenseReason').value.trim();
+      const amount = parseFloat(document.getElementById('expenseAmount').value);
+      const paymentMethod = document.querySelector('input[name="expensePaymentMethod"]:checked').value;
+
+      showLoadingOverlay();
+      
+      const result = await DataStore.saveExpense({ date, reason, amount, paymentMethod });
+      
+      hideLoadingOverlay();
+      
+      if (result) {
+        alert('支出记录成功！');
+        closeExpenseModal();
+        await refreshData();
+        renderStudioFinance();
+      } else {
+        // error already handled in utils.js
+      }
     }
 
     // 老板名单视图
@@ -285,13 +466,21 @@
             } else if (order.type === 'bonus') {
               recComm = order.amount;
             } else if (order.type === 'prepaid') {
+              const diviners = cachedData.receptionists || []; // just for context if needed, but calculateStudioIncomeForOrder handles it
               recComm = calculateCommission(order, r || { commissionRate: 5 });
-              stuComm = calculateStudioIncomeForOrder(order);
+              stuComm = calculateStudioIncomeForOrder(order, recComm, cachedData.diviners || []);
               divComm = 0;
             } else {
+              const diviners = cachedData.diviners || [];
               recComm = calculateCommission(order, r || { commissionRate: 5 });
-              stuComm = calculateStudioIncomeForOrder(order);
-              divComm = (price - recComm - stuComm);
+              if (order.divinerId === '虎虎') {
+                // 虎虎拿100%，工作室净利润 = -recComm
+                divComm = price;
+                stuComm = -recComm;
+              } else {
+                stuComm = calculateStudioIncomeForOrder(order, recComm, diviners);
+                divComm = Math.max(0, price - recComm - stuComm);
+              }
             }
             const typeName = getOrderTypeName(order.type);
             const typeColor = getOrderTypeColor(order.type);
@@ -380,7 +569,7 @@
                       </div>
                       <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
                         <span class="text-muted">工作室提成：</span>
-                        <span style="color: var(--success); font-weight: 600;">¥${stuComm.toFixed(2)}</span>
+                        <span style="color: ${stuComm < 0 ? 'var(--danger)' : 'var(--success)'}; font-weight: 600;">${stuComm < 0 ? '-' : ''}¥${Math.abs(stuComm).toFixed(2)}</span>
                       </div>` : ''}
                     `}
 
@@ -477,6 +666,7 @@
           let divComm = 0;
           let price = o.amount || 0;
           const typeColor = getOrderTypeColor(o.type);
+          const diviners = cachedData.diviners || [];
 
           if (o.type === 'monthly') {
             price = 0;
@@ -485,11 +675,11 @@
             recComm = o.amount;
           } else if (o.type === 'prepaid') {
             recComm = calculateCommission(o, r);
-            stuComm = calculateStudioIncomeForOrder(o);
+            stuComm = calculateStudioIncomeForOrder(o, recComm, diviners);
             divComm = 0;
           } else {
             recComm = calculateCommission(o, r);
-            stuComm = calculateStudioIncomeForOrder(o);
+            stuComm = calculateStudioIncomeForOrder(o, recComm, diviners);
             divComm = (o.amount || 0) - recComm - stuComm;
           }
 
@@ -691,6 +881,7 @@
       const weekStart = selectedSettlementWeek ? new Date(selectedSettlementWeek) : getWeekStart();
       const weekEnd = new Date(weekStart);
       weekEnd.setDate(weekEnd.getDate() + 6);
+      weekEnd.setHours(23, 59, 59, 999);
 
       const isCurrentWeek = formatDate(weekStart) === formatDate(getWeekStart());
       const weekLabel = isCurrentWeek ? '本周' : `${weekStart.getMonth() + 1}/${weekStart.getDate()} - ${weekEnd.getMonth() + 1}/${weekEnd.getDate()}`;
@@ -714,7 +905,17 @@
         if (r.isDeleted && allROrders.length === 0) return;
 
         // 获取该接待的结算时间数组（按时间排序）
-        const rHistory = settlementHistory[r.id] || [];
+        let rHistory = settlementHistory[r.id] || [];
+
+        // ── 如果 localStorage 无历史，但 DB 说已结算 → 用 DB 数据补全 ──────────
+        if (rHistory.length === 0 && isCurrentWeek && settledIds.includes(r.id) && r.lastSettlementDate) {
+          rHistory = [r.lastSettlementDate];
+          // 同步写回 localStorage 以保证后续操作正常
+          settlementHistory[r.id] = rHistory;
+          localStorage.setItem(settlementHistoryKey, JSON.stringify(settlementHistory));
+        }
+        // ────────────────────────────────────────────────────────────────────────
+
         const sortedHistory = [...rHistory].sort((a, b) => new Date(a) - new Date(b));
 
         if (sortedHistory.length === 0) {
@@ -725,7 +926,8 @@
             isSettled: false,
             isPostSettlement: false,
             periodIndex: 0,
-            label: ''
+            label: '',
+            sortedHistory: []
           });
         } else {
           // 有结算历史：按结算时间点分割订单
@@ -746,7 +948,8 @@
                 isSettled: true,
                 isPostSettlement: false,
                 periodIndex: index + 1,
-                label: sortedHistory.length > 1 ? `(第${index + 1}次结算)` : ''
+                label: sortedHistory.length > 1 ? `(第${index + 1}次结算)` : '',
+                sortedHistory: sortedHistory
               });
             }
 
@@ -764,7 +967,8 @@
               isSettled: false,
               isPostSettlement: true,
               periodIndex: sortedHistory.length + 1,
-              label: '(结算后新增)'
+              label: '(结算后新增)',
+              sortedHistory: sortedHistory
             });
           }
         }
@@ -809,36 +1013,31 @@
         const rOrders = entry.orders;
         const isSettled = entry.isSettled;
 
+        // 本期订单统计
         const stats = {
           monthly: rOrders.filter(o => o.type === 'monthly').length,
           normal: rOrders.filter(o => o.type === 'normal').length,
           prepaid: rOrders.filter(o => o.type === 'prepaid').length,
           gift: rOrders.filter(o => o.type === 'gift').length,
-          bonus: rOrders.filter(o => o.type === 'bonus').length
+          bonus: rOrders.filter(o => o.type === 'bonus').length,
         };
 
-        // 强制任务：3单月卡
-        const mandatoryTaskComplete = stats.monthly >= 3;
-        const baseSalary = r.isIntern ? 20 : 40;
+        // 获取本周累计进度（为了判断是否在本次结算跨过门槛）
+        const getCumulativeOrders = (ts) => weekOrders.filter(o => new Date(o.createdAt).getTime() <= ts);
+        const getFlow = (os) => os.reduce((s, o) => s + (o.type === 'monthly' ? 9.9 : (o.type === 'bonus' ? 0 : (o.amount || 0))), 0);
+        const getPrepaid = (os) => os.filter(o => o.type === 'prepaid').reduce((s, o) => s + (o.amount || 0), 0);
 
-        // 计算周流水
-        const weeklyFlow = rOrders.reduce((sum, o) => {
-          if (o.type === 'monthly') return sum + 9.9;
-          if (o.type === 'bonus') return sum;
-          return sum + (o.amount || 0);
-        }, 0);
+        // 本次结算的时间区间
+        const sortedHistory = entry.sortedHistory || [];
+        const periodEndTs = entry.isSettled ? new Date(sortedHistory[entry.periodIndex - 1]).getTime() : new Date().getTime();
+        const periodStartTs = entry.periodIndex > 1 ? new Date(sortedHistory[entry.periodIndex - 2]).getTime() : 0;
 
-        // 计算预存总额
-        const prepaidTotal = rOrders.filter(o => o.type === 'prepaid').reduce((sum, o) => sum + (o.amount || 0), 0);
+        const cumulativeOrdersAtEnd = getCumulativeOrders(periodEndTs).filter(o => o.receptionistId === r.id);
+        const cumulativeOrdersAtStart = getCumulativeOrders(periodStartTs).filter(o => o.receptionistId === r.id);
 
-        // 额外任务检查（只有完成强制任务才计算奖励）
-        const flowTaskComplete = weeklyFlow >= 500;
-        const prepaidTaskComplete = prepaidTotal >= 666;
-        const monthlyTaskComplete = stats.monthly >= 9;
-
-        // 计算单子提成
-        const normalOrderCount = rOrders.filter(o => o.type === 'normal').length;
-        const normalRateOverride = normalOrderCount > 5 ? 10 : 5;
+        // 1. 动态提成率（基于周总数）
+        const weeklyNormalCount = weekOrders.filter(o => o.receptionistId === r.id && o.type === 'normal').length;
+        const normalRateOverride = weeklyNormalCount > 5 ? 10 : 5;
 
         let orderCommission = 0;
         rOrders.forEach(order => {
@@ -847,34 +1046,47 @@
           }
         });
 
-        // 奖励金额（从订单中获取的bonus类型）
+        // 2. 奖励逻辑（首次跨过门槛时发放）
+        const endMonthly = cumulativeOrdersAtEnd.filter(o => o.type === 'monthly').length;
+        const startMonthly = cumulativeOrdersAtStart.filter(o => o.type === 'monthly').length;
+
+        // 底薪 (3单月卡)
+        const baseSalary = r.isIntern ? 20 : 40;
+        const awardedBaseSalary = (endMonthly >= 3 && startMonthly < 3) ? baseSalary : 0;
+
+        // 额外奖金
+        const endFlow = getFlow(cumulativeOrdersAtEnd);
+        const startFlow = getFlow(cumulativeOrdersAtStart);
+        const endPrepaid = getPrepaid(cumulativeOrdersAtEnd);
+        const startPrepaid = getPrepaid(cumulativeOrdersAtStart);
+
+        let extraBonus = 0;
+        if (endFlow >= 500 && startFlow < 500) extraBonus += 15;
+        if (endPrepaid >= 666 && startPrepaid < 666) extraBonus += 15;
+        if (endMonthly >= 9 && startMonthly < 9) extraBonus += 15;
+
         const bonusAmount = rOrders.filter(o => o.type === 'bonus').reduce((sum, o) => sum + o.amount, 0);
+        let extraBonusDetails = [];
+        if (awardedBaseSalary > 0) extraBonusDetails.push(`底薪(¥${awardedBaseSalary})`);
+        if (endFlow >= 500 && startFlow < 500) extraBonusDetails.push('周流水奖励(¥15)');
+        if (endPrepaid >= 666 && startPrepaid < 666) extraBonusDetails.push('预存奖励(¥15)');
+        if (endMonthly >= 9 && startMonthly < 9) extraBonusDetails.push('月卡奖励(¥15)');
 
         // 惩罚金额
         const weeklyPenalties = (r.penalties || []).filter(p => new Date(p.date) >= weekStart);
         const penaltyAmount = isSettled ? 0 : weeklyPenalties.reduce((sum, p) => sum + p.amount, 0);
 
-        // 额外任务奖励（只有完成强制任务才计算）
-        let extraBonus = 0;
-        let extraBonusDetails = [];
-        if (mandatoryTaskComplete) {
-          if (flowTaskComplete) {
-            extraBonus += 15;
-            extraBonusDetails.push('周流水500+');
-          }
-          if (prepaidTaskComplete) {
-            extraBonus += 15;
-            extraBonusDetails.push('预存666+');
-          }
-          if (monthlyTaskComplete) {
-            extraBonus += 15;
-            extraBonusDetails.push('月卡9单+');
-          }
-        }
-
-        // 如果强制任务未完成，不结算底薪，但提成和奖励正常结算
+        // 任务完成状态计算（用本周所有该接待的订单）
+        const allMyWeekOrders = weekOrders.filter(o => o.receptionistId === r.id);
+        const weeklyFlow = allMyWeekOrders.reduce((s, o) => s + (o.type === 'monthly' ? 9.9 : (o.type === 'bonus' ? 0 : (o.amount || 0))), 0);
+        const prepaidTotal = allMyWeekOrders.filter(o => o.type === 'prepaid').reduce((s, o) => s + (o.amount || 0), 0);
+        const mandatoryTaskComplete = stats.monthly >= 3;
+        const flowTaskComplete = weeklyFlow >= 500;
+        const prepaidTaskComplete = prepaidTotal >= 666;
+        const monthlyTaskComplete = stats.monthly >= 9;
         const actualBaseSalary = mandatoryTaskComplete ? baseSalary : 0;
-        const totalSalary = Math.max(0, actualBaseSalary + orderCommission + bonusAmount + extraBonus - penaltyAmount);
+
+        const totalSalary = Math.max(0, awardedBaseSalary + orderCommission + bonusAmount + extraBonus - penaltyAmount);
 
         return `
               <div class="list-item" style="${isSettled ? 'background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); opacity: 0.7;' : entry.isPostSettlement ? 'border: 2px solid var(--accent);' : ''}">
@@ -921,7 +1133,7 @@
                 <div class="salary-detail">
                   <div class="salary-row"><span class="text-muted">底薪：</span><span ${!mandatoryTaskComplete ? 'style="color: var(--danger);"' : ''}>${mandatoryTaskComplete ? '¥' + actualBaseSalary : '¥0 <span style="font-size: 12px; text-decoration: line-through; opacity: 0.5;">(' + baseSalary + ')</span>'}</span></div>
                   <div class="salary-row"><span class="text-muted">单子提成：</span><span style="color: var(--accent);">¥${orderCommission.toFixed(2)}</span></div>
-                  <div class="salary-row"><span class="text-muted">订单奖励：</span><span style="color: ${bonusAmount > 0 ? 'var(--bonus)' : 'var(--text)'};">¥${bonusAmount.toFixed(2)}</span></div>
+                  <div class="salary-row"><span class="text-muted">奶茶类型奖项：</span><span style="color: ${bonusAmount > 0 ? 'var(--bonus)' : 'var(--text)'};">¥${bonusAmount.toFixed(2)}</span></div>
                   ${extraBonus > 0 ? `<div class="salary-row"><span class="text-muted">任务奖励：</span><span style="color: var(--success);">+¥${extraBonus} (${extraBonusDetails.join(', ')})</span></div>` : ''}
                   <div class="salary-row"><span class="text-muted">惩罚项：</span><span style="color: ${penaltyAmount > 0 ? 'var(--danger)' : 'var(--text)'};">${penaltyAmount > 0 ? '-' : ''}¥${penaltyAmount.toFixed(2)}</span></div>
                   <div class="salary-total">
@@ -957,6 +1169,67 @@
       rHistory.push(newSettlementDate);
       settlementHistory[rid] = rHistory;
       localStorage.setItem(settlementHistoryKey, JSON.stringify(settlementHistory));
+
+      // ── 结算时计算并记录任务奖励和奶茶类型奖项支出 ──────────────────────
+      try {
+        const weekOrders = cachedData.orders.filter(o =>
+          o.approved !== false &&
+          o.receptionistId === rid &&
+          new Date(o.createdAt || o.date) >= weekStart
+        );
+
+        // 奶茶类型奖项（bonus 单金额之和）
+        const bonusAmount = weekOrders.filter(o => o.type === 'bonus').reduce((s, o) => s + (o.amount || 0), 0);
+
+        // 任务奖励（底薪 + 额外里程碑）
+        const weeklyMonthlyCount = weekOrders.filter(o => o.type === 'monthly').length;
+        const weeklyFlow = weekOrders.reduce((s, o) => s + (o.type === 'monthly' ? 9.9 : (o.type === 'bonus' ? 0 : (o.amount || 0))), 0);
+        const weeklyPrepaid = weekOrders.filter(o => o.type === 'prepaid').reduce((s, o) => s + (o.amount || 0), 0);
+
+        const mandatoryDone = weeklyMonthlyCount >= 3;
+        const baseSalaryAmt = mandatoryDone ? (receptionist?.isIntern ? 20 : 40) : 0;
+        let extraBonus = 0;
+        if (mandatoryDone && weeklyFlow >= 500) extraBonus += 15;
+        if (mandatoryDone && weeklyPrepaid >= 666) extraBonus += 15;
+        if (mandatoryDone && weeklyMonthlyCount >= 9) extraBonus += 15;
+
+        const taskTotal = baseSalaryAmt + extraBonus;
+        const today = formatDate(new Date());
+
+        // 用于追踪本次结算产生的 expense IDs，以便撤销时删除
+        const settlementExpenseKey = `nyx_settlement_expenses_${weekKey}_${rid}_${rHistory.length}`;
+        const savedExpenseIds = [];
+
+        // 记录任务奖励到 expenses（如果大于0）
+        if (taskTotal > 0) {
+          const saved = await DataStore.saveExpense({
+            date: today,
+            reason: `${receptionistName} 周结算任务奖励（底薪¥${baseSalaryAmt}+里程碑¥${extraBonus}）`,
+            amount: taskTotal,
+            paymentMethod: 'wechat'
+          });
+          if (saved?.id) savedExpenseIds.push(saved.id);
+        }
+
+        // 记录奶茶类型奖项到 expenses（如果大于0）
+        if (bonusAmount > 0) {
+          const saved = await DataStore.saveExpense({
+            date: today,
+            reason: `${receptionistName} 周结算奶茶类型奖项`,
+            amount: bonusAmount,
+            paymentMethod: 'wechat'
+          });
+          if (saved?.id) savedExpenseIds.push(saved.id);
+        }
+
+        // 把产生的 expense IDs 存入 localStorage，供撤销时使用
+        if (savedExpenseIds.length > 0) {
+          localStorage.setItem(settlementExpenseKey, JSON.stringify(savedExpenseIds));
+        }
+      } catch (e) {
+        console.warn('结算时记录支出失败（不影响结算本身）:', e);
+      }
+      // ─────────────────────────────────────────────────────────────────────
 
       // 只有当前周才更新数据库（影响接待页面）
       if (isCurrentWeek) {
@@ -1003,6 +1276,19 @@
 
       const rHistory = settlementHistory[rid] || [];
       if (rHistory.length > 0) {
+        // ── 删除本次结算自动产生的支出记录 ──────────────────────
+        try {
+          const settlementExpenseKey = `nyx_settlement_expenses_${weekKey}_${rid}_${rHistory.length}`;
+          const savedIds = JSON.parse(localStorage.getItem(settlementExpenseKey) || '[]');
+          for (const id of savedIds) {
+            await DataStore.deleteExpense(id);
+          }
+          localStorage.removeItem(settlementExpenseKey);
+        } catch (e) {
+          console.warn('删除结算支出记录失败:', e);
+        }
+        // ────────────────────────────────────────────────────────────────
+
         rHistory.pop(); // 移除最后一次结算
         settlementHistory[rid] = rHistory;
         localStorage.setItem(settlementHistoryKey, JSON.stringify(settlementHistory));
@@ -1531,16 +1817,17 @@
               const typeColor = getOrderTypeColor(o.type);
 
               let recComm = 0, stuComm = 0, divComm = 0;
+              const diviners = cachedData.diviners || [];
               if (o.type === 'monthly') {
                 stuComm = 9.9;
               } else if (o.type === 'bonus') {
                 recComm = o.amount;
               } else if (o.type === 'prepaid') {
                 recComm = calculateCommission(o, rec || {});
-                stuComm = calculateStudioIncomeForOrder(o);
+                stuComm = calculateStudioIncomeForOrder(o, recComm, diviners);
               } else if (['normal', 'gift'].includes(o.type)) {
                 recComm = calculateCommission(o, rec || {});
-                stuComm = calculateStudioIncomeForOrder(o);
+                stuComm = calculateStudioIncomeForOrder(o, recComm, diviners);
                 divComm = (o.amount || 0) - recComm - stuComm;
               } else if (o.type === 'deduct_prepaid') {
                 divComm = o.amount;
@@ -1609,10 +1896,11 @@
       const interns = cachedData.receptionists.filter(r => r.role === 'receptionist' && r.isIntern && !r.isDeleted);
       let html = renderHeader() + `
       <div class="card" >
-          <h2 style="font-size: 18px; margin-bottom: 24px;">🔍 查找信息与补录与实习管理</h2>
+          <h2 style="font-size: 18px; margin-bottom: 24px;">🔍 查找信息与补录与接待管理</h2>
           
-          <div style="margin-bottom: 20px;">
+          <div style="margin-bottom: 20px; display: flex; flex-direction: column; gap: 12px;">
              <button class="btn btn-secondary btn-full" onclick="setView('bossList')">📖 查看老板名单</button>
+             <button class="btn btn-secondary btn-full" onclick="setView('divinerManagement')">🔮 占卜师管理</button>
           </div>
 
           <!--搜索单子信息 -->
@@ -1629,23 +1917,24 @@
           <div class="form-group">
             <label class="form-label" style="font-weight: bold; color: var(--text);">账号订单管理-选择接待</label>
             <select id="manageReceptionist" class="form-select" onchange="onManageReceptionistChange()">
-              <option value="">请选择接待</option>
+              <option value="">-- 请选择接待 --</option>
               ${receptionists.map(r => `<option value="${r.id}">${r.emoji} ${r.name}</option>`).join('')}
             </select>
           </div>
           <div id="manageActions" class="hidden flex flex-col gap-3 mt-4" style="margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px dashed var(--border);">
             <button class="btn btn-primary btn-full" onclick="showAddOrderModal()">📝 补录订单</button>
+            <button class="btn btn-secondary btn-full" onclick="setView('receptionistDetail', { id: document.getElementById('manageReceptionist').value })">📊 查看该接待总单子记录</button>
             <button class="btn btn-danger btn-full" onclick="showDeleteModal()">🗑️ 删除账号</button>
           </div>
           
-          <!-- 实习管理部分 -->
+          <!-- 接待管理部分 -->
           <div style="margin-top: 20px;">
-            <h3 style="font-size: 16px; margin-bottom: 12px;">🎓 实习管理</h3>
-            <p class="text-muted text-sm mb-3">点击下方按钮查看所有接待并管理实习状态</p>
-            <button class="btn btn-secondary btn-full" onclick="showInternModal()">📋 管理全部接待实习状态</button>
+            <h3 style="font-size: 16px; margin-bottom: 12px;">🎓 接待管理</h3>
+            <p class="text-muted text-sm mb-3">点击下方按钮查看所有接待并管理职称与销冠</p>
+            <button class="btn btn-secondary btn-full" onclick="showTitleModal()">📋 管理全部接待名称</button>
             ${interns.length > 0 ? `
               <div style="margin-top: 16px;">
-                <p class="text-muted text-sm mb-2">当前实习中 (${interns.length}人)：勾选可通过实习</p>
+                <p class="text-muted text-sm mb-2">当前实习中 (${interns.length}人)：勾选可手动转正</p>
                 <div style="display: flex; flex-direction: column; gap: 8px;">
                   ${interns.map(r => `
                     <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--bg-light); border-radius: 8px;">
@@ -1663,35 +1952,70 @@
           </div>
         </div >
         
-        <!-- 实习管理模态框 -->
-        <div id="internModal" class="modal-overlay hidden">
+        <!-- 接待职称管理模态框 -->
+        <div id="titleModal" class="modal-overlay hidden">
           <div class="card modal-content" style="max-height: 80vh; overflow-y: auto;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-              <h3 style="margin: 0;">🎓 全部接待实习状态</h3>
-              <button onclick="closeInternModal()" style="background: none; border: none; font-size: 20px; cursor: pointer; color: var(--text-muted);">✕</button>
+              <h3 style="margin: 0;">🎓 管理接待职称</h3>
+              <button onclick="closeTitleModal()" style="background: none; border: none; font-size: 20px; cursor: pointer; color: var(--text-muted);">✕</button>
             </div>
-            <p class="text-muted text-sm mb-4">点击接待可切换实习状态 | 黄色标签=实习中</p>
-            <div style="display: flex; flex-direction: column; gap: 8px;">
+            <p class="text-muted text-sm mb-4">修改称号与销冠状态 (销冠有效期30天，+3%)</p>
+            <div style="display: flex; flex-direction: column; gap: 12px;">
               ${receptionists.map(r => {
-        const createdAt = new Date(r.createdAt);
-        const now = new Date();
-        const daysSinceRegistration = Math.floor((now - createdAt) / (1000 * 60 * 60 * 24));
-        return `
-                  <div onclick="toggleInternStatus('${r.id}')" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--bg-light); border-radius: 8px; cursor: pointer; border: 1px solid ${r.isIntern ? 'var(--warning)' : 'transparent'};">
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                      <span style="font-size: 20px;">${r.emoji}</span>
-                      <div>
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                          <span style="font-weight: 500;">${r.name}</span>
-                          ${r.isIntern ? '<span class="text-xs" style="color: var(--warning); background: rgba(245,158,11,0.15); padding: 2px 6px; border-radius: 4px;">实习中</span>' : '<span class="text-xs" style="color: var(--success); background: rgba(16,185,129,0.15); padding: 2px 6px; border-radius: 4px;">正式</span>'}
+                const now = new Date();
+                const isChampion = r.isChampion && r.championExpiry && now <= new Date(r.championExpiry);
+                const title = r.title || '实习接待';
+                
+                // 本月单数统计
+                const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+                const thisMonthOrders = cachedData.orders ? cachedData.orders.filter(o => 
+                  o.receptionistId === r.id && 
+                  o.approved !== false && 
+                  new Date(o.createdAt || o.date) >= monthStart
+                ) : [];
+                const totalOrders = thisMonthOrders.length;
+                const monthlyCards = thisMonthOrders.filter(o => o.type === 'monthly').length;
+
+                // 工作室总收益统计 (本月)
+                let totalStudioIncome = 0;
+                const divinersList = cachedData.diviners || [];
+                for (const o of thisMonthOrders) {
+                  const recComm = calculateCommission(o, r);
+                  totalStudioIncome += calculateStudioIncomeForOrder(o, recComm, divinersList);
+                }
+                const formattedIncome = totalStudioIncome.toFixed(2);
+
+                return `
+                  <div style="background: var(--bg-light); padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border);">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                      <div style="display: flex; align-items: flex-start; gap: 10px;">
+                        <span style="font-size: 28px; line-height: 1.2;">${r.emoji}</span>
+                        <div style="display: flex; flex-direction: column;">
+                          <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-weight: 600; font-size: 15px;">${r.name}</span>
+                            ${isChampion ? '<span style="font-size: 10px; padding: 1px 6px; border-radius: 4px; background: rgba(255, 215, 0, 0.15); color: #ba8b00; border: 1px solid rgba(255, 215, 0, 0.5); font-weight: bold; box-shadow: 0 0 2px rgba(255, 215, 0, 0.2);">👑 销冠</span>' : ''}
+                          </div>
+                          <span class="text-xs text-muted" style="margin-top: 4px;">本月单: <span style="color: var(--primary); font-weight: 600;">${totalOrders}</span> &nbsp;|&nbsp; 月卡: <span style="color: var(--accent); font-weight: 600;">${monthlyCards}</span> &nbsp;|&nbsp; 为工作室创收: <span style="color: var(--success); font-weight: 600;">¥${formattedIncome}</span></span>
                         </div>
-                        <p class="text-xs text-muted" style="margin-top: 4px;">注册 ${daysSinceRegistration} 天</p>
                       </div>
+                      <span class="text-xs text-muted" style="margin-top: 2px;">注册 ${(Math.floor((now - new Date(r.createdAt)) / 86400000))} 天</span>
                     </div>
-                    <span style="font-size: 12px; color: var(--text-muted);">点击切换 →</span>
+                    
+                    <div style="display: flex; gap: 12px; align-items: center; justify-content: space-between;">
+                      <select class="form-select" style="margin: 0; padding: 4px 8px; font-size: 13px; width: 110px;" onchange="updateReceptionistTitle('${r.id}', this.value)">
+                        <option value="实习接待" ${title === '实习接待' ? 'selected' : ''}>实习接待 (10%)</option>
+                        <option value="正式接待" ${title === '正式接待' ? 'selected' : ''}>正式接待 (12%)</option>
+                        <option value="高级接待" ${title === '高级接待' ? 'selected' : ''}>高级接待 (15%)</option>
+                      </select>
+                      
+                      <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; color: ${title === '实习接待' ? 'var(--text-muted)' : 'var(--text)'};">
+                        <input type="checkbox" ${title === '实习接待' ? 'disabled' : ''} ${isChampion ? 'checked' : ''} onchange="updateReceptionistChampion('${r.id}', this.checked)">
+                        👑 销冠
+                      </label>
+                    </div>
                   </div>
                 `;
-      }).join('')}
+              }).join('')}
             </div>
           </div>
         </div>
@@ -1706,6 +2030,13 @@
                   <option value="normal">正常单</option><option value="gift">礼物单</option>
                   <option value="monthly">月卡单</option><option value="prepaid">预存单</option>
                 </select>
+              </div>
+              <div class="form-group" id="addOrderPaymentMethodGroup">
+                <label class="form-label">支付方式</label>
+                <div style="display: flex; gap: 16px;">
+                  <label><input type="radio" name="addOrderPaymentMethod" value="wechat" checked> 微信</label>
+                  <label><input type="radio" name="addOrderPaymentMethod" value="alipay"> 支付宝</label>
+                </div>
               </div>
               <div class="form-group" id="addOrderAmountGroup"><label class="form-label">金额</label><input type="number" id="addOrderAmount" class="form-input" step="0.01"></div>
               <div class="form-group hidden" id="addOrderCountGroup"><label class="form-label">数量（个）</label><input type="number" id="addOrderCount" class="form-input" min="1" value="1"></div>
@@ -1840,7 +2171,7 @@
 
             const rec = receptionists.find(r => r.id === o.receptionistId) || { commissionRate: 5 };
             const recComm = calculateCommission(o, rec);
-            const stuComm = calculateStudioIncomeForOrder(o);
+            const stuComm = calculateStudioIncomeForOrder(o, recComm, cachedData.diviners || []);
             const divComm = amount - recComm - stuComm;
             return sum + divComm;
           }, 0);
@@ -1925,6 +2256,8 @@
       const type = document.getElementById('addOrderType').value;
       const date = document.getElementById('addOrderDate').value;
       const bossName = document.getElementById('addOrderBoss').value;
+      const paymentMethodEl = document.querySelector('input[name="addOrderPaymentMethod"]:checked');
+      const paymentMethod = paymentMethodEl ? paymentMethodEl.value : 'wechat';
 
       if (!rid) {
         alert('请先选择接待');
@@ -1944,6 +2277,7 @@
               date: date,
               bossName: bossName + (count > 1 ? ` #${i + 1}` : ''),
               type: 'monthly',
+              paymentMethod: paymentMethod,
               divinerId: '无',
               amount: 0,
               approved: true
@@ -1976,6 +2310,7 @@
             date: date,
             bossName: bossName,
             type: type,
+            paymentMethod: paymentMethod,
             questionContent: (type === 'normal' || type === 'gift') ? questionContent : null,
             divinerId: (type === 'normal' || type === 'gift') ? divinerId : (type === 'prepaid' ? '无' : ''),
             amount: amount,
@@ -2024,29 +2359,52 @@
       document.getElementById('manageActions').classList.toggle('hidden', !v);
     }
 
-    function showInternModal() {
-      document.getElementById('internModal').classList.remove('hidden');
+    function showTitleModal() {
+      document.getElementById('titleModal').classList.remove('hidden');
     }
 
-    function closeInternModal() {
-      document.getElementById('internModal').classList.add('hidden');
+    function closeTitleModal() {
+      document.getElementById('titleModal').classList.add('hidden');
     }
 
-    async function toggleInternStatus(rid) {
-      const r = cachedData.receptionists.find(x => x.id === rid);
-      if (!r) return;
-
-      const newStatus = !r.isIntern;
-      const statusText = newStatus ? '实习中' : '正式';
-
-      if (!confirm(`确定将 ${r.name} 设置为「${statusText}」吗？`)) {
+    async function updateReceptionistTitle(rid, newTitle) {
+      if (!confirm(`确定将该接待设为「${newTitle}」吗？`)) {
+        renderManageReceptionists(); // revert UI change
+        showTitleModal();
         return;
       }
-
-      await DataStore.updateReceptionist(rid, { isIntern: newStatus });
+      
+      const isIntern = newTitle === '实习接待';
+      const now = new Date();
+      const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      await DataStore.updateReceptionist(rid, { title: newTitle, isIntern: isIntern, lastEvalMonth: currentMonthStr });
       await refreshData();
-      closeInternModal();
       renderManageReceptionists();
+      showTitleModal();
+    }
+    
+    async function updateReceptionistChampion(rid, isChamp) {
+      const now = new Date();
+      if (isChamp) {
+        if (!confirm('设为销冠将获得 +3% 提成增益，有效期30天。确认设置吗？')) {
+          renderManageReceptionists(); // revert UI change
+          showTitleModal();
+          return;
+        }
+        // Set expiry to 30 days from now
+        now.setDate(now.getDate() + 30);
+        await DataStore.updateReceptionist(rid, { isChampion: true, championExpiry: now.toISOString() });
+      } else {
+        if (!confirm('确定取消销冠吗？')) {
+          renderManageReceptionists(); // revert UI change
+          showTitleModal();
+          return;
+        }
+        await DataStore.updateReceptionist(rid, { isChampion: false });
+      }
+      await refreshData();
+      renderManageReceptionists();
+      showTitleModal();
     }
     function showAddOrderModal() { document.getElementById('addOrderModal').classList.remove('hidden'); }
     function closeAddOrderModal() { document.getElementById('addOrderModal').classList.add('hidden'); }
@@ -2105,7 +2463,11 @@
     }
 
     async function passIntern(rid) {
-      await DataStore.updateReceptionist(rid, { isIntern: false });
+      const r = cachedData.receptionists.find(x => x.id === rid);
+      if (!confirm(`确定将 ${r?.name || '该接待'} 转为正式接待吗？`)) return;
+      const now = new Date();
+      const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      await DataStore.updateReceptionist(rid, { isIntern: false, title: '正式接待', lastEvalMonth: currentMonthStr });
       await refreshData();
       renderManageReceptionists();
     }
@@ -2205,6 +2567,92 @@
         // 阻止冒泡防止触发其他点击事件（虽然这里可能不需要，但为了保险）
         window.event && window.event.stopPropagation();
       }
+    }
+
+    // 占卜师管理视图
+    function renderDivinerManagement() {
+      const diviners = cachedData.diviners || [];
+      let html = renderHeader() + `
+      <div class="card" >
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 24px;">
+             <button class="btn-text" onclick="setView('manageReceptionists')">← 返回</button>
+             <h2 style="font-size: 18px; margin: 0;">🔮 占卜师管理</h2>
+          </div>
+          
+          <div style="margin-bottom: 24px; padding: 16px; background: var(--bg-light); border-radius: 12px; border: 1px dashed var(--border);">
+            <h3 style="font-size: 15px; margin-bottom: 12px;">添加占卜师</h3>
+            <form id="addDivinerForm" style="display: flex; flex-direction: column; gap: 12px;" onsubmit="handleAddDiviner(event)">
+              <div class="form-group" style="margin-bottom: 0;">
+                 <label class="form-label">占卜师名称</label>
+                 <input type="text" id="newDivinerName" class="form-input" placeholder="输入占卜师名称" required>
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                 <label class="form-label">占卜师提成 (%)</label>
+                 <input type="number" id="newDivinerRate" class="form-input" placeholder="如 55 (代表55%)" step="0.1" required>
+              </div>
+              <button type="submit" class="btn btn-primary btn-full">➕ 添加新占卜师</button>
+            </form>
+          </div>
+
+          <p class="text-muted text-sm mb-4">列表说明：工作室提成 = 100% - 占卜师提成 - 接待提成。</p>
+          
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            <div style="background: var(--bg-card); border: 2px solid var(--accent); padding: 16px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center;">
+               <div>
+                  <p style="font-size: 16px; font-weight: bold; margin-bottom: 4px;">🌟 虎虎</p>
+                  <p style="font-size: 13px; color: var(--text-muted);">(特殊合作者)</p>
+               </div>
+               <span style="font-size: 12px; color: var(--accent); background: var(--accent)15; padding: 4px 8px; border-radius: 4px;">不可删除修改</span>
+            </div>
+            
+            ${diviners.map(d => `
+              <div style="background: var(--bg-card); border: 1px solid var(--border); padding: 16px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center;">
+                 <div>
+                    <p style="font-size: 16px; font-weight: bold; margin-bottom: 4px;">🔮 ${d.name}</p>
+                    <p style="font-size: 13px; color: var(--text-muted);">提成比例：${d.commissionRate}%</p>
+                 </div>
+                 <div style="display: flex; gap: 8px;">
+                    <button class="btn-text" style="color: var(--danger); font-size: 14px;" onclick="deleteDiviner(${d.id}, '${d.name}')">🗑️ 删除</button>
+                 </div>
+              </div>
+            `).join('')}
+          </div>
+      </div>
+      `;
+      document.getElementById('pageContent').innerHTML = html;
+    }
+
+    async function handleAddDiviner(e) {
+      e.preventDefault();
+      if (isSubmitting) return;
+
+      const nameInput = document.getElementById('newDivinerName').value.trim();
+      const rateInput = parseFloat(document.getElementById('newDivinerRate').value);
+
+      if (nameInput === '虎虎' || cachedData.diviners.some(d => d.name === nameInput)) {
+        alert('占卜师已存在！');
+        return;
+      }
+
+      showLoadingOverlay();
+      const result = await DataStore.addDiviner(nameInput, rateInput);
+      if (result.success) {
+        await refreshData();
+        renderDivinerManagement();
+      } else {
+        alert('添加失败: ' + result.message);
+      }
+      hideLoadingOverlay();
+    }
+
+    async function deleteDiviner(id, name) {
+      if (!confirm(`确定要删除占卜师「${name}」吗？（这不会影响历史订单）`)) return;
+
+      showLoadingOverlay();
+      await DataStore.deleteDiviner(id);
+      await refreshData();
+      renderDivinerManagement();
+      hideLoadingOverlay();
     }
 
     // 公告系统视图
@@ -2358,7 +2806,7 @@
         // 正常单/礼物单
         const rec = receptionists.find(r => r.id === o.receptionistId) || { commissionRate: 5 };
         const recComm = calculateCommission(o, rec);
-        const stuComm = calculateStudioIncomeForOrder(o);
+        const stuComm = calculateStudioIncomeForOrder(o, recComm, cachedData.diviners || []);
         const divComm = amount - recComm - stuComm;
         return sum + divComm;
       }, 0);

@@ -89,41 +89,72 @@ function calculateCommission(order, receptionist, normalRateOverride) {
   if (order.type === 'deduct_prepaid') return 0;
   if (order.type === 'bonus') return order.amount;
 
-  // 兼容两种字段命名方式（驼峰和下划线）
+  // 获取订单创建时间
+  const orderTime = order.createdAt ? new Date(order.createdAt) : new Date(order.date);
+
+  // 计算基础底薪（根据职称）
+  const title = receptionist.title || '实习接待';
+  let baseRate = 10; // 实习接待默认10%
+  if (title === '正式接待') baseRate = 12;
+  else if (title === '高级接待') baseRate = 15;
+
+  // 销冠加成判断（30天有效期）
+  const isChampion = receptionist.isChampion || receptionist.is_champion;
+  const championExpiryStr = receptionist.championExpiry || receptionist.champion_expiry;
+  
+  if (isChampion && championExpiryStr) {
+    const championExpiry = new Date(championExpiryStr);
+    if (orderTime <= championExpiry) {
+      baseRate += 3; // 销冠+3%
+    }
+  }
+
+  // 兼容临时修改提成的系统
   const commissionExpiry = receptionist.commissionExpiry || receptionist.commission_expiry;
   const commissionRate = receptionist.commissionRate || receptionist.commission_rate;
   const commissionStartDate = receptionist.commissionStartDate || receptionist.commission_start_date;
 
-  // 获取订单创建时间
-  const orderTime = order.createdAt ? new Date(order.createdAt) : new Date(order.date);
-
-  // buff只在有效期内生效：订单时间必须在 startDate 和 expiry 之间
   const buffStart = commissionStartDate ? new Date(commissionStartDate) : null;
   const buffEnd = commissionExpiry ? new Date(commissionExpiry) : null;
+  const isInBuffPeriod = buffStart && buffEnd && orderTime >= buffStart && orderTime <= buffEnd;
 
-  const isInBuffPeriod = buffStart && buffEnd &&
-    orderTime >= buffStart && orderTime <= buffEnd;
+  // 如果有临时提成（且大于基础提成），则取最高值
+  let rate = isInBuffPeriod ? Math.max(commissionRate, baseRate) : baseRate;
 
-  // 基础提成：正常单 5%（除非有覆盖），礼物单 10%，其他 5%
-  const baseRate = order.type === 'normal' ? (normalRateOverride || 5) : (order.type === 'gift' ? 10 : 5);
+  // 如果有外部强制覆盖（如周正单数达标后的10%规则），且是正常单/礼物单，则应用覆盖
+  if (normalRateOverride && (order.type === 'normal' || order.type === 'gift')) {
+    rate = Math.max(rate, normalRateOverride);
+  }
 
-  const rate = isInBuffPeriod ? Math.max(commissionRate, baseRate) : baseRate;
   return order.amount * (rate / 100);
 }
 
 // 计算工作室收入（新计费规则）
-// 特殊规则：当占卜师为"虎虎"时，工作室收入为0（虎虎拿剩余金额）
-function calculateStudioIncomeForOrder(order) {
-  // 虎虎接单时工作室不收取费用
+// 特殊规则：当占卜师为"虎虎"时，虎虎拿走100%订单金额，接待提成由工作室额外承担
+function calculateStudioIncomeForOrder(order, recComm = 0, diviners = []) {
+  // 虎虎接单：虎虎拿100%，工作室净利润 = 0 - 接待提成（负数）
   if (order.divinerId === '虎虎') {
-    return 0;
+    return -recComm;
   }
 
+  const diviner = diviners.find(d => d.name === order.divinerId);
+
   switch (order.type) {
-    case 'normal': return order.amount * 0.25;
-    case 'gift': return order.amount * 0.10;
+    case 'normal':
+    case 'gift':
+    case 'prepaid':
+      if (diviner && diviner.commissionRate !== undefined) {
+        // 如果有设定的占卜师（非虎虎），且有提成比例
+        // 占卜师提成 = 订单金额 * 提成比例
+        // 工作室提成 = 订单金额 - 占卜师提成 - 接待提成
+        const divinerComm = order.amount * (diviner.commissionRate / 100);
+        return Math.max(0, order.amount - divinerComm - recComm);
+      }
+      // 默认向下兼容旧计算：
+      if (order.type === 'gift') return order.amount * 0.10;
+      return order.amount * 0.25;
+      
     case 'monthly': return 9.9;
-    case 'prepaid': return order.amount * 0.25;
     case 'deduct_prepaid': return 0;
     case 'bonus': return 0;
     default: return 0;
@@ -131,8 +162,21 @@ function calculateStudioIncomeForOrder(order) {
 }
 
 // 计算工作室总收入
-function calculateTotalStudioIncome(orders) {
-  return orders.filter(o => o.approved !== false).reduce((sum, o) => sum + calculateStudioIncomeForOrder(o), 0);
+function calculateTotalStudioIncome(orders, diviners = [], receptionists = []) {
+  return orders.filter(o => o.approved !== false).reduce((sum, o) => {
+    // 尽量准确地计算接待提成
+    let recComm = 0;
+    const r = receptionists.find(rec => rec.id === o.receptionistId);
+    if (r) {
+      if (o.type === 'bonus') {
+        recComm = o.amount;
+      } else if (o.type !== 'monthly' && o.type !== 'deduct_prepaid') {
+        // 近似计算（如果没有具体的 normalRateOverride 传参，默认5/10）
+        recComm = calculateCommission(o, r);
+      }
+    }
+    return sum + calculateStudioIncomeForOrder(o, recComm, diviners);
+  }, 0);
 }
 
 // ============ 老板预存系统 ============
@@ -197,6 +241,10 @@ const DataStore = {
       password: u.password,
       balance: 0,
       isIntern: u.is_intern,
+      title: u.title || '实习接待',
+      isChampion: u.is_champion || false,
+      championExpiry: u.champion_expiry,
+      lastEvalMonth: u.last_eval_month,
       commissionRate: u.commission_rate,
       commissionExpiry: u.commission_expiry,
       commissionStartDate: u.commission_start_date,
@@ -209,6 +257,111 @@ const DataStore = {
     }));
   },
 
+  async getDiviners() {
+    const { data, error } = await supabaseClient
+      .from('diviners')
+      .select('*')
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching diviners:', error);
+      return [];
+    }
+
+    return data.map(d => ({
+      id: d.id,
+      name: d.name,
+      commissionRate: d.commission_rate
+    }));
+  },
+
+  async evaluatePromotions() {
+    const orders = await this.getOrders();
+    const receptionists = await this.getReceptionists();
+    
+    const now = new Date();
+    const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const previousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    
+    for (const r of receptionists) {
+      if (r.role !== 'receptionist' || r.isDeleted) continue;
+      
+      let needsUpdate = false;
+      const updates = {};
+      const currentTitle = r.title || '实习接待';
+      
+      const allApprovedOrders = orders.filter(o => o.receptionistId === r.id && o.approved !== false);
+      
+      if (currentTitle === '实习接待') {
+        if (allApprovedOrders.length >= 20) {
+          updates.title = '正式接待';
+          updates.isIntern = false;
+          needsUpdate = true;
+        }
+      }
+      
+      if ((currentTitle === '正式接待' || currentTitle === '高级接待') && r.lastEvalMonth !== currentMonthStr) {
+        const lastMonthOrders = allApprovedOrders.filter(o => {
+          const oDate = new Date(o.date);
+          return oDate.getFullYear() === previousMonth.getFullYear() && oDate.getMonth() === previousMonth.getMonth();
+        });
+        
+        if (lastMonthOrders.length < 10) {
+          updates.title = currentTitle === '高级接待' ? '正式接待' : '实习接待';
+          if (updates.title === '实习接待') updates.isIntern = true;
+          needsUpdate = true;
+        }
+        
+        updates.lastEvalMonth = currentMonthStr;
+        needsUpdate = true;
+      }
+      
+      if (needsUpdate) {
+        await this.updateReceptionist(r.id, updates);
+      }
+    }
+  },
+
+  async addDiviner(name, commissionRate) {
+    const { data, error } = await supabaseClient
+      .from('diviners')
+      .insert({ name, commission_rate: commissionRate })
+      .select();
+
+    if (error) {
+      console.error('Error adding diviner:', error);
+      return { success: false, message: error.message };
+    }
+    return { success: true, data: data[0] };
+  },
+
+  async updateDiviner(id, commissionRate) {
+    const { data, error } = await supabaseClient
+      .from('diviners')
+      .update({ commission_rate: commissionRate })
+      .eq('id', id)
+      .select();
+
+    if (error) {
+      console.error('Error updating diviner:', error);
+      return { success: false, message: error.message };
+    }
+    return { success: true, data: data[0] };
+  },
+
+  async deleteDiviner(id) {
+    const { error } = await supabaseClient
+      .from('diviners')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error deleting diviner:', error);
+      return false;
+    }
+    return true;
+  },
+
   async saveReceptionist(receptionist) {
     const dbData = {
       name: receptionist.name,
@@ -216,6 +369,10 @@ const DataStore = {
       role: receptionist.role,
       password: receptionist.password,
       is_intern: receptionist.isIntern,
+      title: receptionist.title,
+      is_champion: receptionist.isChampion,
+      champion_expiry: receptionist.championExpiry,
+      last_eval_month: receptionist.lastEvalMonth,
       commission_rate: receptionist.commissionRate,
       commission_expiry: receptionist.commissionExpiry,
       is_deleted: receptionist.isDeleted,
@@ -252,6 +409,10 @@ const DataStore = {
   async updateReceptionist(id, updates) {
     const dbUpdates = {};
     if (updates.isIntern !== undefined) dbUpdates.is_intern = updates.isIntern;
+    if (updates.title !== undefined) dbUpdates.title = updates.title;
+    if (updates.isChampion !== undefined) dbUpdates.is_champion = updates.isChampion;
+    if (updates.championExpiry !== undefined) dbUpdates.champion_expiry = updates.championExpiry;
+    if (updates.lastEvalMonth !== undefined) dbUpdates.last_eval_month = updates.lastEvalMonth;
     if (updates.commissionRate !== undefined) dbUpdates.commission_rate = updates.commissionRate;
     if (updates.commissionStartDate !== undefined) dbUpdates.commission_start_date = updates.commissionStartDate;
     if (updates.commissionExpiry !== undefined) dbUpdates.commission_expiry = updates.commissionExpiry;
@@ -270,6 +431,7 @@ const DataStore = {
 
     if (error) {
       console.error('Error updating user:', error);
+      alert('数据库更新失败！可能您还没有在Supabase运行新建列的SQL代码。错误信息: ' + error.message);
       return null;
     }
     return data[0];
@@ -277,10 +439,36 @@ const DataStore = {
 
   async deleteReceptionist(id, keepOrders = true) {
     if (keepOrders) {
-      // 软删除
+      // 软删除：仅标记为已注销
       return await this.updateReceptionist(id, { isDeleted: true });
     } else {
-      // 硬删除 (会级联删除订单)
+      // 硬删除：先清除该接待的所有订单和关联支出，再删除账号
+
+      // 1. 删除该接待的所有订单
+      const { error: ordersError } = await supabaseClient
+        .from('orders')
+        .delete()
+        .eq('receptionist_id', id);
+      if (ordersError) {
+        console.error('删除接待订单失败:', ordersError);
+        return false;
+      }
+
+      // 2. 删除 expenses 表中由该接待结算自动生成的支出记录（通过 reason 前缀模糊匹配）
+      // 先获取该接待的名字
+      const { data: userData } = await supabaseClient
+        .from('users')
+        .select('name')
+        .eq('id', id)
+        .single();
+      if (userData?.name) {
+        await supabaseClient
+          .from('expenses')
+          .delete()
+          .or(`reason.ilike.${userData.name} 周结算%`);
+      }
+
+      // 3. 删除账号本身
       const { error } = await supabaseClient
         .from('users')
         .delete()
@@ -318,6 +506,7 @@ const DataStore = {
       originalAmount: o.original_amount ? parseFloat(o.original_amount) : null,
       discount: o.discount ? parseFloat(o.discount) : null,
       questionContent: o.question_content,
+      paymentMethod: o.payment_method || 'wechat',
       bonusType: o.bonus_type,
       approved: o.approved,
       rejectionReason: o.rejection_reason || null,
@@ -335,6 +524,7 @@ const DataStore = {
       type: order.type,
       amount: order.amount || 0,
       question_content: order.questionContent || null,
+      payment_method: order.paymentMethod || 'wechat',
       bonus_type: order.bonusType || null,
       approved: order.approved !== undefined ? order.approved : false,
       date: order.date
@@ -395,6 +585,61 @@ const DataStore = {
 
   async approveOrder(id) {
     return await this.updateOrder(id, { approved: true });
+  },
+
+  // ============ 支出 ============
+  async getExpenses() {
+    const { data, error } = await supabaseClient
+      .from('expenses')
+      .select('*')
+      .order('date', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching expenses:', error);
+      return [];
+    }
+
+    return data.map(e => ({
+      id: e.id,
+      date: e.date,
+      reason: e.reason,
+      amount: parseFloat(e.amount) || 0,
+      paymentMethod: e.payment_method || 'wechat',
+      createdAt: e.created_at
+    }));
+  },
+
+  async saveExpense(expense) {
+    const dbData = {
+      date: expense.date,
+      reason: expense.reason,
+      amount: expense.amount,
+      payment_method: expense.paymentMethod
+    };
+
+    const { data, error } = await supabaseClient
+      .from('expenses')
+      .insert(dbData)
+      .select();
+
+    if (error) {
+      console.error('Error inserting expense:', error);
+      alert('保存支出失败！请确认已在Supabase创建expenses表。\n错误信息: ' + error.message);
+      return null;
+    }
+    return data[0];
+  },
+
+  async deleteExpense(id) {
+    const { error } = await supabaseClient
+      .from('expenses')
+      .delete()
+      .eq('id', id);
+    if (error) {
+      console.error('Error deleting expense:', error);
+      return false;
+    }
+    return true;
   },
 
   // ============ 惩罚 ============
@@ -703,6 +948,10 @@ async function handleRegister(name, emoji, password) {
     password,
     role: 'receptionist',
     isIntern: true,
+    title: '实习接待',
+    isChampion: false,
+    championExpiry: null,
+    lastEvalMonth: null,
     commissionRate: 5,
     commissionExpiry: null,
     isDeleted: false
@@ -877,4 +1126,21 @@ function showLoading(container) {
 
 function hideLoading() {
   // 由实际内容替换
+}
+
+// ============ 接待员职称与底薪 ============
+function getReceptionistTitle(receptionist) {
+  return receptionist.isIntern ? 'intern_receptionist' : 'receptionist';
+}
+
+function getReceptionistTitleLabel(receptionist) {
+  return receptionist.isIntern ? '实习接待' : '正式接待';
+}
+
+function getReceptionistBaseSalary(receptionist) {
+  return receptionist.isIntern ? 20 : 40;
+}
+
+function isChampionActive(receptionist) {
+  return false; // 默认不激活销冠，可按需修改
 }
