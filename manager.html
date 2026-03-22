@@ -150,7 +150,15 @@
             ${pendingCount > 0 ? `<span class="notification-dot" style="position: absolute; top: 8px; right: 8px;"></span>` : ''}
           </div>
           <button class="btn btn-primary btn-full" style="justify-content: flex-start;" onclick="setView('dailyIncome')">📊 查看收入明细（每日）</button>
-          <button class="btn btn-secondary btn-full" style="justify-content: flex-start;" onclick="setView('studioFinance')">💰 查看工作室总收入与支出</button>
+          <div style="position: relative; border: 2px solid #86efac; border-radius: 14px; padding: 3px; background: linear-gradient(135deg, rgba(134,239,172,0.08), rgba(74,222,128,0.05));">
+            <span style="position: absolute; top: -8px; left: 12px; font-size: 12px;">🌿</span>
+            <span style="position: absolute; top: -8px; right: 30px; font-size: 11px;">🍃</span>
+            <span style="position: absolute; bottom: -8px; left: 30px; font-size: 11px;">🍃</span>
+            <span style="position: absolute; bottom: -8px; right: 12px; font-size: 12px;">🌿</span>
+            <span style="position: absolute; top: 50%; left: -8px; transform: translateY(-50%); font-size: 11px;">🌱</span>
+            <span style="position: absolute; top: 50%; right: -8px; transform: translateY(-50%); font-size: 11px;">🌱</span>
+            <button class="btn btn-secondary btn-full" style="justify-content: flex-start; border: none; margin: 0;" onclick="setView('studioFinance')">💰 查看工作室总收入与支出</button>
+          </div>
           <button class="btn btn-secondary btn-full" style="justify-content: flex-start;" onclick="setView('monthlyFlow')">📈 当月接待累计流水</button>
           <button class="btn btn-secondary btn-full" style="justify-content: flex-start;" onclick="setView('taskManagement')">📋 周任务完成清单</button>
           <button class="btn btn-accent btn-full" style="justify-content: flex-start;" onclick="setView('weeklySettlement')">💵 周结算清单</button>
