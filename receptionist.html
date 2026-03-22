@@ -55,6 +55,7 @@
     let showPenalties = false;
     let unreadCount = 0;
     let cachedData = null;
+    let showExtraTasks = false;
 
     const user = requireReceptionist();
     if (!user) {
@@ -238,43 +239,55 @@
         `;
       }
 
+      // 额外任务HTML（两种状态共用）
+      var extraTasksHtml = '';
+      // 任务1
+      extraTasksHtml += '<div class="task-block"><p style="font-size: 14px; margin-bottom: 8px;">1️⃣ 周流水达到500</p>' +
+        '<div class="flex items-center gap-3"><div class="progress-bar">' +
+        '<div class="progress-fill ' + (weeklyFlow >= 500 ? 'progress-fill-success' : 'progress-fill-primary') + '" style="width: ' + Math.min(weeklyFlow / 500 * 100, 100) + '%"></div></div>' +
+        '<span class="text-xs ' + (weeklyFlow >= 500 ? 'order-type-monthly' : 'text-muted') + '">' + Math.min(Math.round(weeklyFlow / 500 * 100), 100) + '%</span></div></div>';
+
+      // 任务2
+      extraTasksHtml += '<div class="task-block"><p style="font-size: 14px; margin-bottom: 8px;">2️⃣ 在任意平台发布宣传贴文4条</p><div class="flex gap-2 flex-wrap">';
+      for (let i = 0; i < 4; i++) {
+        extraTasksHtml += '<button class="task-check-btn" style="border: 2px solid ' + (promotionChecks[i] ? 'var(--success)' : 'var(--border)') + '; background: ' + (promotionChecks[i] ? 'rgba(16,185,129,0.2)' : 'transparent') + '; color: ' + (promotionChecks[i] ? 'var(--success)' : 'var(--text-muted)') + ';" onclick="togglePromotionCheck(' + i + ')">' + (promotionChecks[i] ? '✓' : (i + 1)) + '</button>';
+      }
+      extraTasksHtml += '<span class="text-xs ' + (promotionChecks.filter(Boolean).length >= 4 ? 'order-type-monthly' : 'text-muted') + '" style="align-self: center; margin-left: 8px;">' + promotionChecks.filter(Boolean).length + '/4</span></div></div>';
+
+      // 任务3
+      extraTasksHtml += '<div class="task-block"><p style="font-size: 14px; margin-bottom: 8px;">3️⃣ 老板预存666</p>' +
+        '<div class="flex items-center gap-3"><div class="progress-bar">' +
+        '<div class="progress-fill ' + (weeklyPrepaid >= 666 ? 'progress-fill-success' : 'progress-fill-warning') + '" style="width: ' + Math.min(weeklyPrepaid / 666 * 100, 100) + '%"></div></div>' +
+        '<span class="text-xs ' + (weeklyPrepaid >= 666 ? 'order-type-monthly' : 'text-muted') + '">' + Math.min(Math.round(weeklyPrepaid / 666 * 100), 100) + '%</span></div></div>';
+
+      // 任务4
+      extraTasksHtml += '<div class="task-block" style="margin-bottom: 0;"><p style="font-size: 14px; margin-bottom: 8px;">4️⃣ 拉到下单月卡老板9名</p>' +
+        '<div class="flex items-center gap-3"><div class="progress-bar">' +
+        '<div class="progress-fill ' + (weeklyMonthlyOrders >= 9 ? 'progress-fill-success' : 'progress-fill-primary') + '" style="width: ' + Math.min(weeklyMonthlyOrders / 9 * 100, 100) + '%"></div></div>' +
+        '<span class="text-xs ' + (weeklyMonthlyOrders >= 9 ? 'order-type-monthly' : 'text-muted') + '">' + weeklyMonthlyOrders + '/9</span></div></div>';
+
       // 周任务进度
       html += '<div class="card mb-5">';
       if (!taskComplete) {
-        html += '<h3 style="font-size: 16px; margin-bottom: 12px;">📋 本周任务</h3>' +
+        html += '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">' +
+          '<h3 style="font-size: 16px; margin: 0;">📋 本周任务</h3>' +
+          '<button class="btn" style="font-size: 12px; padding: 4px 12px; border-radius: 8px; background: var(--bg-hover); color: var(--text-muted); border: 1px solid var(--border);" onclick="toggleExtraTasks()">其他任务 ' + (showExtraTasks ? '▲' : '▼') + '</button>' +
+          '</div>' +
           '<div class="flex items-center gap-3 mb-2">' +
           '<div class="progress-bar"><div class="progress-fill progress-fill-warning" style="width: ' + Math.min(weeklyMonthlyOrders / 3 * 100, 100) + '%"></div></div>' +
           '<span class="text-sm text-muted">' + weeklyMonthlyOrders + '/3 月卡单</span>' +
           '</div>' +
           '<p style="font-size: 13px; color: var(--danger);">⚠️ 未完成任务将导致本周无底薪</p>';
+
+        if (showExtraTasks) {
+          html += '<div style="margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border);">' +
+            '<p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">✨ 额外任务进度</p>' +
+            extraTasksHtml + '</div>';
+        }
       } else {
         html += '<h3 style="font-size: 16px; margin-bottom: 8px; color: var(--success);">🎉 周任务已完成 太棒啦宝宝!</h3>';
         html += '<p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">解锁任务后有超简单的任务 加油啊！！！</p>';
-
-        // 任务1
-        html += '<div class="task-block"><p style="font-size: 14px; margin-bottom: 8px;">1️⃣ 周流水达到500</p>' +
-          '<div class="flex items-center gap-3"><div class="progress-bar">' +
-          '<div class="progress-fill ' + (weeklyFlow >= 500 ? 'progress-fill-success' : 'progress-fill-primary') + '" style="width: ' + Math.min(weeklyFlow / 500 * 100, 100) + '%"></div></div>' +
-          '<span class="text-xs ' + (weeklyFlow >= 500 ? 'order-type-monthly' : 'text-muted') + '">' + Math.min(Math.round(weeklyFlow / 500 * 100), 100) + '%</span></div></div>';
-
-        // 任务2
-        html += '<div class="task-block"><p style="font-size: 14px; margin-bottom: 8px;">2️⃣ 在任意平台发布宣传贴文4条</p><div class="flex gap-2 flex-wrap">';
-        for (let i = 0; i < 4; i++) {
-          html += '<button class="task-check-btn" style="border: 2px solid ' + (promotionChecks[i] ? 'var(--success)' : 'var(--border)') + '; background: ' + (promotionChecks[i] ? 'rgba(16,185,129,0.2)' : 'transparent') + '; color: ' + (promotionChecks[i] ? 'var(--success)' : 'var(--text-muted)') + ';" onclick="togglePromotionCheck(' + i + ')">' + (promotionChecks[i] ? '✓' : (i + 1)) + '</button>';
-        }
-        html += '<span class="text-xs ' + (promotionChecks.filter(Boolean).length >= 4 ? 'order-type-monthly' : 'text-muted') + '" style="align-self: center; margin-left: 8px;">' + promotionChecks.filter(Boolean).length + '/4</span></div></div>';
-
-        // 任务3
-        html += '<div class="task-block"><p style="font-size: 14px; margin-bottom: 8px;">3️⃣ 老板预存666</p>' +
-          '<div class="flex items-center gap-3"><div class="progress-bar">' +
-          '<div class="progress-fill ' + (weeklyPrepaid >= 666 ? 'progress-fill-success' : 'progress-fill-warning') + '" style="width: ' + Math.min(weeklyPrepaid / 666 * 100, 100) + '%"></div></div>' +
-          '<span class="text-xs ' + (weeklyPrepaid >= 666 ? 'order-type-monthly' : 'text-muted') + '">' + Math.min(Math.round(weeklyPrepaid / 666 * 100), 100) + '%</span></div></div>';
-
-        // 任务4
-        html += '<div class="task-block" style="margin-bottom: 0;"><p style="font-size: 14px; margin-bottom: 8px;">4️⃣ 拉到下单月卡老板9名</p>' +
-          '<div class="flex items-center gap-3"><div class="progress-bar">' +
-          '<div class="progress-fill ' + (weeklyMonthlyOrders >= 9 ? 'progress-fill-success' : 'progress-fill-primary') + '" style="width: ' + Math.min(weeklyMonthlyOrders / 9 * 100, 100) + '%"></div></div>' +
-          '<span class="text-xs ' + (weeklyMonthlyOrders >= 9 ? 'order-type-monthly' : 'text-muted') + '">' + weeklyMonthlyOrders + '/9</span></div></div>';
+        html += extraTasksHtml;
       }
       html += '</div>';
 
@@ -285,7 +298,80 @@
         '<button class="btn btn-secondary btn-full" onclick="navigateTo(\'view-records.html\')">📅 查看我的提交记录</button>' +
         '</div>';
 
+      // 最近提交记录（可展开）
+      html += '<div class="card" style="margin-top: 20px;">' +
+        '<div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" onclick="toggleRecentHistory()">' +
+        '<h3 style="font-size: 15px; margin: 0;">📋 最近提交记录</h3>' +
+        '<span style="color: var(--text-muted); font-size: 13px;" id="historyToggleIcon">' + (showRecentHistory ? '▲ 收起' : '▼ 展开') + '</span>' +
+        '</div>';
+
+      if (showRecentHistory) {
+        html += renderRecentHistory();
+      }
+
+      html += '</div>';
+
       document.getElementById('pageContent').innerHTML = html;
+    }
+
+    let showRecentHistory = false;
+
+    function toggleRecentHistory() {
+      showRecentHistory = !showRecentHistory;
+      renderPage();
+    }
+
+    function renderRecentHistory() {
+      if (!cachedData) return '';
+
+      const myOrders = cachedData.orders
+        .filter(o => o.receptionistId === user.id)
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        .slice(0, 10);
+
+      if (myOrders.length === 0) {
+        return '<p style="color: var(--text-muted); font-size: 13px; text-align: center; padding: 12px 0;">暂无提交记录</p>';
+      }
+
+      let html = '<div style="margin-top: 14px;">';
+      myOrders.forEach(function(order) {
+        let statusBadge = '';
+        let borderColor = 'var(--border)';
+        if (order.approved === true) {
+          statusBadge = '<span style="background: rgba(16,185,129,0.15); color: var(--success); font-size: 11px; padding: 2px 8px; border-radius: 6px; font-weight: 600;">✅ 已通过</span>';
+          borderColor = 'var(--success)';
+        } else if (order.approved === false && order.rejectionReason) {
+          statusBadge = '<span style="background: rgba(239,68,68,0.15); color: var(--danger); font-size: 11px; padding: 2px 8px; border-radius: 6px; font-weight: 600;">❌ 未通过</span>';
+          borderColor = 'var(--danger)';
+        } else {
+          statusBadge = '<span style="background: rgba(245,158,11,0.15); color: var(--warning); font-size: 11px; padding: 2px 8px; border-radius: 6px; font-weight: 600;">⏳ 正在审核</span>';
+          borderColor = 'var(--warning)';
+        }
+
+        var typeName = getOrderTypeName(order.type);
+        var typeColor = getOrderTypeColor(order.type);
+        var amountText = order.type === 'monthly' ? '' : '¥' + (order.amount || 0).toFixed(2);
+
+        // 占卜师和问题内容
+        var divinerText = order.divinerId && order.divinerId !== '无' ? order.divinerId : '';
+        var questionText = order.questionContent || '';
+
+        html += '<div style="padding: 10px 12px; border-radius: 10px; background: var(--bg-light); margin-bottom: 8px; border-left: 3px solid ' + borderColor + ';">' +
+          '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">' +
+          '<span style="font-size: 13px; font-weight: 500;">' + order.bossName + ' <span style="color: ' + typeColor + '; font-size: 12px;">' + typeName + '</span></span>' +
+          statusBadge +
+          '</div>' +
+          (divinerText ? '<p style="font-size: 12px; color: var(--text-muted); margin-bottom: 2px;">🔮 占卜师：' + divinerText + '</p>' : '') +
+          (questionText ? '<p style="font-size: 12px; color: var(--text-muted); margin-bottom: 2px;">💬 ' + questionText + '</p>' : '') +
+          '<div style="display: flex; justify-content: space-between; align-items: center;">' +
+          '<span style="font-size: 12px; color: var(--text-muted);">' + order.date + '</span>' +
+          '<span style="font-size: 13px; font-weight: 600; color: var(--accent);">' + amountText + '</span>' +
+          '</div>' +
+          (order.approved === false && order.rejectionReason ? '<p style="font-size: 12px; color: var(--danger); margin-top: 4px;">拒绝原因：' + order.rejectionReason + '</p>' : '') +
+          '</div>';
+      });
+      html += '</div>';
+      return html;
     }
 
     function calculateBalanceSync(orders, penalties, receptionist, taskComplete, taskBonusStatus = {}) {
@@ -451,6 +537,11 @@
 
     function togglePenalties() {
       showPenalties = !showPenalties;
+      renderPage();
+    }
+
+    function toggleExtraTasks() {
+      showExtraTasks = !showExtraTasks;
       renderPage();
     }
 
