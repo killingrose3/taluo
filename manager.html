@@ -231,8 +231,8 @@
               <div style="font-size: 20px; font-weight: bold; color: var(--text);">¥${totalIncome.toFixed(2)}</div>
             </div>
             <div style="text-align: right;">
-              <div style="font-size: 14px; color: var(--danger); margin-bottom: 4px;">总历史支出</div>
-              <div style="font-size: 20px; font-weight: bold; color: var(--danger);">-¥${totalExpense.toFixed(2)}</div>
+              <div style="font-size: 14px; color: ${totalExpense > 0 ? 'var(--danger)' : (totalExpense < 0 ? 'var(--success)' : 'var(--text)')}; margin-bottom: 4px;">历史${totalExpense >= 0 ? '总支出' : '净充值'}</div>
+              <div style="font-size: 20px; font-weight: bold; color: ${totalExpense > 0 ? 'var(--danger)' : (totalExpense < 0 ? 'var(--success)' : 'var(--text)')};">${totalExpense > 0 ? '-' : (totalExpense < 0 ? '+' : '')}¥${Math.abs(totalExpense).toFixed(2)}</div>
             </div>
           </div>
           
@@ -241,18 +241,26 @@
             <div style="font-size: 28px; font-weight: bold; color: var(--accent);">¥${totalNet.toFixed(2)}</div>
           </div>
 
-          <button class="btn btn-primary btn-full" onclick="showExpenseModal()">📝 记录新支出</button>
+          <div style="display: flex; gap: 12px;">
+            <button class="btn btn-primary flex-1" onclick="showExpenseModal()">📝 记录新支出</button>
+            <button class="btn btn-primary flex-1" style="background-color: var(--success); border-color: var(--success);" onclick="showRechargeModal()">💰 充值资金</button>
+          </div>
           
-          <h3 style="font-size: 16px; margin: 24px 0 12px;">💸 历史支出明细</h3>
+          <h3 style="font-size: 16px; margin: 24px 0 12px;">💸 历史收支明细</h3>
           <div style="display: flex; flex-direction: column; gap: 12px;">
-            ${expenses.length === 0 ? '<p class="text-muted text-center" style="padding: 20px 0;">暂无支出记录</p>' : ''}
-            ${expenses.map(e => `
-              <div style="background: var(--bg-light); padding: 12px 16px; border-radius: 8px; border-left: 3px solid var(--danger);">
+            ${expenses.length === 0 ? '<p class="text-muted text-center" style="padding: 20px 0;">暂无记录</p>' : ''}
+            ${expenses.map(e => {
+              const isRecharge = e.amount < 0;
+              const displayAmount = Math.abs(e.amount).toFixed(2);
+              const sign = isRecharge ? '+' : '-';
+              const color = isRecharge ? 'var(--success)' : 'var(--danger)';
+              return `
+              <div style="background: var(--bg-light); padding: 12px 16px; border-radius: 8px; border-left: 3px solid ${color};">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                   <span style="font-weight: 600;">${e.reason}</span>
                   <div style="display: flex; align-items: center; gap: 10px;">
-                    <span style="color: var(--danger); font-weight: bold;">-¥${e.amount.toFixed(2)}</span>
-                    <button onclick="deleteExpenseRecord('${e.id}')" style="background: none; border: none; color: var(--danger); font-size: 16px; cursor: pointer; padding: 2px 4px; opacity: 0.7;" title="删除此支出">🗑</button>
+                    <span style="color: ${color}; font-weight: bold;">${sign}¥${displayAmount}</span>
+                    <button onclick="deleteExpenseRecord('${e.id}')" style="background: none; border: none; color: ${color}; font-size: 16px; cursor: pointer; padding: 2px 4px; opacity: 0.7;" title="删除此记录">🗑</button>
                   </div>
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-muted);">
@@ -260,7 +268,7 @@
                   <span>方式: ${e.paymentMethod === 'alipay' ? '<span style="color: #3b82f6;">支付宝</span>' : '<span style="color: var(--success);">微信</span>'}</span>
                 </div>
               </div>
-            `).join('')}
+            `}).join('')}
           </div>
         </div>
 
@@ -291,6 +299,38 @@
               <div class="flex gap-3 mt-4">
                 <button type="button" class="btn btn-secondary flex-1" onclick="closeExpenseModal()">取消</button>
                 <button type="submit" class="btn btn-danger flex-1">确认提交</button>
+              </div>
+            </form>
+          </div>
+        </div>
+        
+        <!-- 充值资金 Modal -->
+        <div id="rechargeModal" class="modal-overlay hidden">
+          <div class="card modal-content">
+            <h3 style="margin-bottom: 16px; color: var(--success);">💰 充值资金</h3>
+            <form id="rechargeForm" onsubmit="handleRechargeSubmit(event)">
+              <div class="form-group">
+                <label class="form-label">充值日期</label>
+                <input type="date" id="rechargeDate" class="form-input" value="${getToday()}" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">充值原因</label>
+                <input type="text" id="rechargeReason" class="form-input" placeholder="例如：注资" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">充值金额 (元)</label>
+                <input type="number" id="rechargeAmount" class="form-input" min="0.01" step="0.01" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">充值方式</label>
+                <div style="display: flex; gap: 16px;">
+                  <label><input type="radio" name="rechargePaymentMethod" value="wechat" checked> 微信</label>
+                  <label><input type="radio" name="rechargePaymentMethod" value="alipay"> 支付宝</label>
+                </div>
+              </div>
+              <div class="flex gap-3 mt-4">
+                <button type="button" class="btn btn-secondary flex-1" onclick="closeRechargeModal()">取消</button>
+                <button type="submit" class="btn flex-1" style="background-color: var(--success); color: white;">确认充值</button>
               </div>
             </form>
           </div>
@@ -339,6 +379,41 @@
       if (result) {
         alert('支出记录成功！');
         closeExpenseModal();
+        await refreshData();
+        renderStudioFinance();
+      } else {
+        // error already handled in utils.js
+      }
+    }
+
+    function showRechargeModal() {
+      document.getElementById('rechargeModal').classList.remove('hidden');
+    }
+
+    function closeRechargeModal() {
+      document.getElementById('rechargeModal').classList.add('hidden');
+      document.getElementById('rechargeForm').reset();
+      document.getElementById('rechargeDate').value = getToday();
+    }
+
+    async function handleRechargeSubmit(e) {
+      e.preventDefault();
+      
+      const date = document.getElementById('rechargeDate').value;
+      const rawReason = document.getElementById('rechargeReason').value.trim();
+      const reason = '充值 - ' + rawReason;
+      const amount = -parseFloat(document.getElementById('rechargeAmount').value); // 负数代表充值(反向支出)
+      const paymentMethod = document.querySelector('input[name="rechargePaymentMethod"]:checked').value;
+
+      showLoadingOverlay();
+      
+      const result = await DataStore.saveExpense({ date, reason, amount, paymentMethod });
+      
+      hideLoadingOverlay();
+      
+      if (result) {
+        alert('充值记录成功！');
+        closeRechargeModal();
         await refreshData();
         renderStudioFinance();
       } else {
