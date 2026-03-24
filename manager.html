@@ -237,16 +237,6 @@
             </div>
           </div>
 
-          <div style="background: var(--bg-light); padding: 16px; border-radius: 12px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center;">
-            <div>
-              <div style="font-size: 14px; color: var(--text-muted); margin-bottom: 4px;">总历史纯利润 (收入)</div>
-              <div style="font-size: 20px; font-weight: bold; color: var(--text);">¥${totalIncome.toFixed(2)}</div>
-            </div>
-            <div style="text-align: right;">
-              <div style="font-size: 14px; color: ${totalExpense > 0 ? 'var(--danger)' : (totalExpense < 0 ? 'var(--success)' : 'var(--text)')}; margin-bottom: 4px;">历史${totalExpense >= 0 ? '总支出' : '净充值'}</div>
-              <div style="font-size: 20px; font-weight: bold; color: ${totalExpense > 0 ? 'var(--danger)' : (totalExpense < 0 ? 'var(--success)' : 'var(--text)')};">${totalExpense > 0 ? '-' : (totalExpense < 0 ? '+' : '')}¥${Math.abs(totalExpense).toFixed(2)}</div>
-            </div>
-          </div>
           
           <div style="background: var(--bg-light); padding: 16px; border-radius: 12px; margin-bottom: 24px; border: 1px solid var(--accent); text-align: center;">
             <div style="font-size: 14px; color: var(--accent); margin-bottom: 4px;">总和净赚入兜</div>
@@ -1047,12 +1037,13 @@
       const weekStart = selectedSettlementWeek ? new Date(selectedSettlementWeek) : getWeekStart();
       const weekEnd = new Date(weekStart);
       weekEnd.setDate(weekEnd.getDate() + 6);
-      weekEnd.setHours(23, 59, 59, 999);
+      const weekStartStr = formatDate(weekStart);
+      const weekEndStr = formatDate(weekEnd);
 
-      const isCurrentWeek = formatDate(weekStart) === formatDate(getWeekStart());
+      const isCurrentWeek = weekStartStr === formatDate(getWeekStart());
       const weekLabel = isCurrentWeek ? '本周' : `${weekStart.getMonth() + 1}/${weekStart.getDate()} - ${weekEnd.getMonth() + 1}/${weekEnd.getDate()}`;
 
-      const weekOrders = orders.filter(o => new Date(o.date) >= weekStart && new Date(o.date) <= weekEnd && o.approved !== false);
+      const weekOrders = orders.filter(o => o.date >= weekStartStr && o.date <= weekEndStr && o.approved !== false);
       const weeklyIncome = calculateTotalStudioIncome(weekOrders);
       const settledIds = await DataStore.getSettledIds();
       const allReceptionists = receptionists.filter(r => r.role === 'receptionist');
@@ -1293,8 +1284,7 @@
                     <span style="color: ${mandatoryTaskComplete && prepaidTaskComplete ? 'var(--success)' : 'var(--text-muted)'};">
                       ${mandatoryTaskComplete && prepaidTaskComplete ? '✓' : '○'} 预存666 (¥${prepaidTotal.toFixed(0)})
                     </span>
-                    <span style="color: ${mandatoryTaskComplete && monthlyTaskComplete ? 'var(--success)' : 'var(--text-muted)'};">
-                      ${mandatoryTaskComplete && monthlyTaskComplete ? '✓' : '○'} 月卡9单 (${stats.monthly}/9)
+                    <span style="color: ${mandatoryTaskComplete && monthlyTaskComplete ? '✓' : '○'} 月卡9单 (${stats.monthly}/9)
                     </span>
                   </div>
                 </div>
@@ -1330,7 +1320,7 @@
       const weekKey = formatDate(weekStart);
       const weekEnd = new Date(weekStart);
       weekEnd.setDate(weekEnd.getDate() + 6);
-      weekEnd.setHours(23, 59, 59, 999);
+      const weekEndStr = formatDate(weekEnd);
 
       const weeklySettlementsData = await DataStore.getWeeklySettlements(weekKey);
       const existingWs = weeklySettlementsData.find(ws => ws.receptionist_id === rid);
@@ -1341,12 +1331,12 @@
 
       // ── 结算时计算并记录任务奖励和奶茶类型奖项支出 ──────────────────────
       try {
-        const weekOrders = cachedData.orders.filter(o =>
-          o.approved !== false &&
-          o.receptionistId === rid &&
-          new Date(o.date) >= weekStart &&
-          new Date(o.date) <= weekEnd
-        );
+        console.log(`[Settlement Debug] receptionistId=${rid}, weekKey=${weekKey}, weekEndStr=${weekEndStr}`);
+        const weekOrders = cachedData.orders.filter(o => {
+          const match = o.approved !== false && o.receptionistId === rid && o.date >= weekKey && o.date <= weekEndStr;
+          if (match) console.log(`[Settlement Debug] Found order matching date: ${o.date}, amount: ${o.amount}, type: ${o.type}`);
+          return match;
+        });
 
         // 奶茶类型奖项（bonus 单金额之和）
         const bonusAmount = weekOrders.filter(o => o.type === 'bonus').reduce((s, o) => s + (o.amount || 0), 0);
@@ -1359,9 +1349,10 @@
         const mandatoryDone = weeklyMonthlyCount >= 3;
         const baseSalaryAmt = mandatoryDone ? (receptionist?.isIntern ? 20 : 40) : 0;
         let extraBonus = 0;
-        if (mandatoryDone && weeklyFlow >= 500) extraBonus += 15;
-        if (mandatoryDone && weeklyPrepaid >= 666) extraBonus += 15;
-        if (mandatoryDone && weeklyMonthlyCount >= 9) extraBonus += 15;
+        // 即使未完成强制任务（底薪为0），达成流水、预存或月卡单总数要求依然发放对应奖励
+        if (weeklyFlow >= 500) extraBonus += 15;
+        if (weeklyPrepaid >= 666) extraBonus += 15;
+        if (weeklyMonthlyCount >= 9) extraBonus += 15;
 
         const taskTotal = baseSalaryAmt + extraBonus;
         const today = formatDate(new Date());
@@ -1664,9 +1655,13 @@
       const orders = cachedData.orders;
       const receptionists = cachedData.receptionists.filter(r => r.role === 'receptionist' && !r.isDeleted);
       const weekStart = getWeekStart();
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekEnd.getDate() + 6);
+      const weekStartStr = formatDate(weekStart);
+      const weekEndStr = formatDate(weekEnd);
 
-      const getWeeklyMonthlyCount = (rid) => orders.filter(o => o.receptionistId === rid && o.type === 'monthly' && new Date(o.date) >= weekStart && o.approved !== false).length;
-      const getWeeklyFlow = (rid) => orders.filter(o => o.receptionistId === rid && (o.type === 'normal' || o.type === 'deduct_prepaid' || o.type === 'gift') && new Date(o.date) >= weekStart && o.approved !== false).reduce((sum, o) => sum + (o.amount || 0), 0);
+      const getWeeklyMonthlyCount = (rid) => orders.filter(o => o.receptionistId === rid && o.type === 'monthly' && o.date >= weekStartStr && o.date <= weekEndStr && o.approved !== false).length;
+      const getWeeklyFlow = (rid) => orders.filter(o => o.receptionistId === rid && (o.type === 'normal' || o.type === 'deduct_prepaid' || o.type === 'gift') && o.date >= weekStartStr && o.date <= weekEndStr && o.approved !== false).reduce((sum, o) => sum + (o.amount || 0), 0);
 
       const redZone = receptionists.filter(r => getWeeklyMonthlyCount(r.id) < 3);
       const greenZone = receptionists.filter(r => getWeeklyMonthlyCount(r.id) >= 3);
