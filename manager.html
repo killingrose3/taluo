@@ -180,6 +180,7 @@
       // Calculate Pure Profit per payment method
       let wechatIncome = 0;
       let alipayIncome = 0;
+      let huhuRecCommTotal = 0; // 虎虎订单产生的接待提成总额
 
       orders.forEach(o => {
         const r = cachedData.receptionists.find(rec => rec.id === o.receptionistId);
@@ -192,6 +193,11 @@
           }
         }
         
+        // 累计虎虎订单产生的接待提成
+        if (o.divinerId === '虎虎' && o.type !== 'bonus' && o.type !== 'monthly' && o.type !== 'prepaid') {
+          huhuRecCommTotal += recComm;
+        }
+        
         let profit = calculateStudioIncomeForOrder(o, recComm, diviners);
         if (o.paymentMethod === 'alipay') {
           alipayIncome += profit;
@@ -199,6 +205,12 @@
           wechatIncome += profit;
         }
       });
+      
+      // 计算已通过"虎虎支付接待工资"充值回来的金额
+      const huhuPaidBack = expenses
+        .filter(e => e.reason && e.reason.includes('虎虎支付接待工资') && e.amount < 0)
+        .reduce((sum, e) => sum + Math.abs(e.amount), 0);
+      const huhuUnpaid = Math.round(Math.max(0, huhuRecCommTotal - huhuPaidBack) * 100) / 100;
 
       // Calculate total expenses per method
       const wechatExpense = expenses.filter(e => e.paymentMethod === 'wechat').reduce((sum, e) => sum + (e.amount || 0), 0);
@@ -240,6 +252,15 @@
             <div style="font-size: 14px; color: var(--accent); margin-bottom: 4px;">总和净赚入兜</div>
             <div style="font-size: 28px; font-weight: bold; color: var(--accent);">¥${totalNet.toFixed(2)}</div>
           </div>
+          
+          ${huhuUnpaid > 0 ? `
+          <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid #f59e0b; padding: 16px; border-radius: 12px; margin-bottom: 24px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-size: 14px; color: #f59e0b;">🐯 虎虎待付接待工资</span>
+              <span style="font-size: 20px; font-weight: bold; color: var(--danger);">¥${huhuUnpaid.toFixed(2)}</span>
+            </div>
+          </div>
+          ` : ''}
 
           <div style="display: flex; flex-direction: column; gap: 12px;">
             <button class="btn btn-primary btn-full" onclick="showExpenseModal()">📝 记录新支出</button>
@@ -310,10 +331,23 @@
             <h3 style="margin-bottom: 16px; color: var(--success);">💰 充值资金</h3>
             <form id="rechargeForm" onsubmit="handleRechargeSubmit(event)">
               <div class="form-group">
+                <label class="form-label">充值类型</label>
+                <select id="rechargeType" class="form-select" onchange="onRechargeTypeChange()">
+                  <option value="custom">自定义充值</option>
+                  <option value="huhu">🐯 虎虎支付接待工资</option>
+                </select>
+              </div>
+              <div id="huhuHintBox" data-unpaid="${huhuUnpaid.toFixed(2)}" style="display: none; background: rgba(245, 158, 11, 0.1); border: 1px solid #f59e0b; padding: 12px; border-radius: 8px; margin-bottom: 12px; font-size: 13px;">
+                <div style="color: #f59e0b; font-weight: bold; margin-bottom: 4px;">🐯 虎虎应付接待工资明细</div>
+                <div style="color: var(--text-muted);">累计应付：<span style="font-weight: bold;">¥${huhuRecCommTotal.toFixed(2)}</span></div>
+                <div style="color: var(--text-muted);">已支付：<span style="color: var(--success);">¥${huhuPaidBack.toFixed(2)}</span></div>
+                <div style="color: ${huhuUnpaid > 0 ? 'var(--danger)' : 'var(--success)'}; font-weight: bold; margin-top: 4px;">待支付：¥${huhuUnpaid.toFixed(2)}</div>
+              </div>
+              <div class="form-group">
                 <label class="form-label">充值日期</label>
                 <input type="date" id="rechargeDate" class="form-input" value="${getToday()}" required>
               </div>
-              <div class="form-group">
+              <div class="form-group" id="rechargeReasonGroup">
                 <label class="form-label">充值原因</label>
                 <input type="text" id="rechargeReason" class="form-input" placeholder="例如：注资" required>
               </div>
@@ -388,21 +422,69 @@
 
     function showRechargeModal() {
       document.getElementById('rechargeModal').classList.remove('hidden');
+      // 重置为自定义
+      const typeSelect = document.getElementById('rechargeType');
+      if (typeSelect) typeSelect.value = 'custom';
+      onRechargeTypeChange();
     }
 
     function closeRechargeModal() {
       document.getElementById('rechargeModal').classList.add('hidden');
       document.getElementById('rechargeForm').reset();
       document.getElementById('rechargeDate').value = getToday();
+      const typeSelect = document.getElementById('rechargeType');
+      if (typeSelect) typeSelect.value = 'custom';
+      onRechargeTypeChange();
+    }
+
+    function onRechargeTypeChange() {
+      const type = document.getElementById('rechargeType').value;
+      const huhuHintBox = document.getElementById('huhuHintBox');
+      const reasonGroup = document.getElementById('rechargeReasonGroup');
+      const reasonInput = document.getElementById('rechargeReason');
+      const amountInput = document.getElementById('rechargeAmount');
+      const huhuUnpaidVal = parseFloat(document.getElementById('huhuHintBox')?.dataset?.unpaid || '0');
+
+      if (type === 'huhu') {
+        huhuHintBox.style.display = 'block';
+        reasonGroup.style.display = 'none';
+        reasonInput.removeAttribute('required');
+        reasonInput.value = '虎虎支付接待工资';
+        amountInput.max = huhuUnpaidVal.toFixed(2);
+        amountInput.value = huhuUnpaidVal > 0 ? huhuUnpaidVal.toFixed(2) : '';
+      } else {
+        huhuHintBox.style.display = 'none';
+        reasonGroup.style.display = 'block';
+        reasonInput.setAttribute('required', 'required');
+        reasonInput.value = '';
+        amountInput.removeAttribute('max');
+        amountInput.value = '';
+      }
     }
 
     async function handleRechargeSubmit(e) {
       e.preventDefault();
       
+      const type = document.getElementById('rechargeType').value;
       const date = document.getElementById('rechargeDate').value;
-      const rawReason = document.getElementById('rechargeReason').value.trim();
+      const inputAmount = parseFloat(document.getElementById('rechargeAmount').value);
+      let rawReason;
+      if (type === 'huhu') {
+        rawReason = '虎虎支付接待工资';
+        const maxUnpaid = parseFloat(document.getElementById('huhuHintBox')?.dataset?.unpaid || '0');
+        if (inputAmount > maxUnpaid) {
+          alert(`充值金额不能超过待支付金额 ¥${maxUnpaid.toFixed(2)}`);
+          return;
+        }
+        if (maxUnpaid <= 0) {
+          alert('虎虎当前没有待支付的接待工资！');
+          return;
+        }
+      } else {
+        rawReason = document.getElementById('rechargeReason').value.trim();
+      }
       const reason = '充值 - ' + rawReason;
-      const amount = -parseFloat(document.getElementById('rechargeAmount').value); // 负数代表充值(反向支出)
+      const amount = -inputAmount; // 负数代表充值(反向支出)
       const paymentMethod = document.querySelector('input[name="rechargePaymentMethod"]:checked').value;
 
       showLoadingOverlay();
@@ -975,10 +1057,21 @@
       const settledIds = await DataStore.getSettledIds();
       const allReceptionists = receptionists.filter(r => r.role === 'receptionist');
 
-      // 获取本周结算历史（从 localStorage）
+      // 从云端获取本周的结算情况
       const weekKey = formatDate(weekStart);
-      const settlementHistoryKey = `nyx_settlement_history_${weekKey}`;
-      let settlementHistory = JSON.parse(localStorage.getItem(settlementHistoryKey) || '{}');
+      const weeklySettlementsData = await DataStore.getWeeklySettlements(weekKey);
+      let settlementHistory = {};
+      weeklySettlementsData.forEach(ws => {
+        if (ws.history && ws.history.length > 0) {
+          settlementHistory[ws.receptionist_id] = ws.history;
+        } else if (ws.is_settled && isCurrentWeek) {
+           // 兼容老数据
+           const r = receptionists.find(rec => rec.id === ws.receptionist_id);
+           if (r && r.lastSettlementDate) {
+             settlementHistory[ws.receptionist_id] = [r.lastSettlementDate];
+           }
+        }
+      });
 
       // 创建结算条目列表
       let settlementEntries = [];
@@ -988,17 +1081,9 @@
         const allROrders = weekOrders.filter(o => o.receptionistId === r.id);
         if (r.isDeleted && allROrders.length === 0) return;
 
-        // 获取该接待的结算时间数组（按时间排序）
-        let rHistory = settlementHistory[r.id] || [];
-
-        // ── 如果 localStorage 无历史，但 DB 说已结算 → 用 DB 数据补全 ──────────
-        if (rHistory.length === 0 && isCurrentWeek && settledIds.includes(r.id) && r.lastSettlementDate) {
-          rHistory = [r.lastSettlementDate];
-          // 同步写回 localStorage 以保证后续操作正常
-          settlementHistory[r.id] = rHistory;
-          localStorage.setItem(settlementHistoryKey, JSON.stringify(settlementHistory));
-        }
-        // ────────────────────────────────────────────────────────────────────────
+        // 获取该接待的结算时间数组（获取纯时间点以兼容新旧格式）
+        let rawHistory = settlementHistory[r.id] || [];
+        let rHistory = rawHistory.map(item => typeof item === 'string' ? item : item.date);
 
         const sortedHistory = [...rHistory].sort((a, b) => new Date(a) - new Date(b));
 
@@ -1243,23 +1328,24 @@
       const weekStart = selectedSettlementWeek ? new Date(selectedSettlementWeek) : getWeekStart();
       const isCurrentWeek = formatDate(weekStart) === formatDate(getWeekStart());
       const weekKey = formatDate(weekStart);
-      const settlementHistoryKey = `nyx_settlement_history_${weekKey}`;
-      let settlementHistory = JSON.parse(localStorage.getItem(settlementHistoryKey) || '{}');
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekEnd.getDate() + 6);
+      weekEnd.setHours(23, 59, 59, 999);
 
-      const rHistory = settlementHistory[rid] || [];
+      const weeklySettlementsData = await DataStore.getWeeklySettlements(weekKey);
+      const existingWs = weeklySettlementsData.find(ws => ws.receptionist_id === rid);
+      const rHistory = (existingWs && existingWs.history) ? [...existingWs.history] : [];
       const newSettlementDate = new Date().toISOString();
 
-      // 添加新的结算时间到历史
-      rHistory.push(newSettlementDate);
-      settlementHistory[rid] = rHistory;
-      localStorage.setItem(settlementHistoryKey, JSON.stringify(settlementHistory));
+      const savedExpenseIds = [];
 
       // ── 结算时计算并记录任务奖励和奶茶类型奖项支出 ──────────────────────
       try {
         const weekOrders = cachedData.orders.filter(o =>
           o.approved !== false &&
           o.receptionistId === rid &&
-          new Date(o.createdAt || o.date) >= weekStart
+          new Date(o.date) >= weekStart &&
+          new Date(o.date) <= weekEnd
         );
 
         // 奶茶类型奖项（bonus 单金额之和）
@@ -1279,10 +1365,6 @@
 
         const taskTotal = baseSalaryAmt + extraBonus;
         const today = formatDate(new Date());
-
-        // 用于追踪本次结算产生的 expense IDs，以便撤销时删除
-        const settlementExpenseKey = `nyx_settlement_expenses_${weekKey}_${rid}_${rHistory.length}`;
-        const savedExpenseIds = [];
 
         // 记录任务奖励到 expenses（如果大于0）
         if (taskTotal > 0) {
@@ -1305,14 +1387,18 @@
           });
           if (saved?.id) savedExpenseIds.push(saved.id);
         }
-
-        // 把产生的 expense IDs 存入 localStorage，供撤销时使用
-        if (savedExpenseIds.length > 0) {
-          localStorage.setItem(settlementExpenseKey, JSON.stringify(savedExpenseIds));
-        }
       } catch (e) {
         console.warn('结算时记录支出失败（不影响结算本身）:', e);
       }
+      
+      // 添加新的结算记录（包含 expense IDs 以便跨设备撤销）
+      rHistory.push({
+        date: newSettlementDate,
+        expenseIds: savedExpenseIds
+      });
+
+      // 保存到数据库
+      await DataStore.saveSettlementHistory(rid, weekKey, rHistory);
       // ─────────────────────────────────────────────────────────────────────
 
       // 只有当前周才更新数据库（影响接待页面）
@@ -1355,31 +1441,40 @@
       const weekStart = selectedSettlementWeek ? new Date(selectedSettlementWeek) : getWeekStart();
       const isCurrentWeek = formatDate(weekStart) === formatDate(getWeekStart());
       const weekKey = formatDate(weekStart);
-      const settlementHistoryKey = `nyx_settlement_history_${weekKey}`;
-      let settlementHistory = JSON.parse(localStorage.getItem(settlementHistoryKey) || '{}');
 
-      const rHistory = settlementHistory[rid] || [];
+      const weeklySettlementsData = await DataStore.getWeeklySettlements(weekKey);
+      const existingWs = weeklySettlementsData.find(ws => ws.receptionist_id === rid);
+      const rHistory = (existingWs && existingWs.history) ? [...existingWs.history] : [];
+
       if (rHistory.length > 0) {
         // ── 删除本次结算自动产生的支出记录 ──────────────────────
         try {
-          const settlementExpenseKey = `nyx_settlement_expenses_${weekKey}_${rid}_${rHistory.length}`;
-          const savedIds = JSON.parse(localStorage.getItem(settlementExpenseKey) || '[]');
-          for (const id of savedIds) {
-            await DataStore.deleteExpense(id);
+          const lastEntry = rHistory[rHistory.length - 1];
+          if (typeof lastEntry === 'object' && lastEntry.expenseIds) {
+             for (const id of lastEntry.expenseIds) {
+               await DataStore.deleteExpense(id);
+             }
+          } else {
+             // 兼容旧的 localStorage 结构
+             const settlementExpenseKey = `nyx_settlement_expenses_${weekKey}_${rid}_${rHistory.length}`;
+             const savedIds = JSON.parse(localStorage.getItem(settlementExpenseKey) || '[]');
+             for (const id of savedIds) {
+               await DataStore.deleteExpense(id);
+             }
+             localStorage.removeItem(settlementExpenseKey);
           }
-          localStorage.removeItem(settlementExpenseKey);
         } catch (e) {
           console.warn('删除结算支出记录失败:', e);
         }
         // ────────────────────────────────────────────────────────────────
-
+        
         rHistory.pop(); // 移除最后一次结算
-        settlementHistory[rid] = rHistory;
-        localStorage.setItem(settlementHistoryKey, JSON.stringify(settlementHistory));
+        await DataStore.saveSettlementHistory(rid, weekKey, rHistory);
 
         // 只有当前周才更新数据库（影响接待页面）
         if (isCurrentWeek) {
-          const newLastDate = rHistory.length > 0 ? rHistory[rHistory.length - 1] : null;
+          const newLastEntry = rHistory.length > 0 ? rHistory[rHistory.length - 1] : null;
+          const newLastDate = newLastEntry ? (typeof newLastEntry === 'string' ? newLastEntry : newLastEntry.date) : null;
           await DataStore.updateReceptionist(rid, { lastSettlementDate: newLastDate });
 
           if (rHistory.length === 0) {

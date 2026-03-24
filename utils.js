@@ -814,6 +814,44 @@ const DataStore = {
     return data.map(s => s.receptionist_id);
   },
 
+  async getWeeklySettlements(weekStartStr) {
+    const { data, error } = await supabaseClient
+      .from('weekly_settlements')
+      .select('*')
+      .eq('week_start', weekStartStr);
+
+    if (error) {
+      console.error('Error fetching weekly settlements:', error);
+      return [];
+    }
+    
+    return data;
+  },
+
+  async saveSettlementHistory(receptionistId, weekStartStr, historyArray) {
+    const isSettled = historyArray && historyArray.length > 0;
+    const lastEntry = isSettled ? historyArray[historyArray.length - 1] : null;
+    const settledAt = lastEntry ? (typeof lastEntry === 'string' ? lastEntry : lastEntry.date) : null;
+    const { data, error } = await supabaseClient
+      .from('weekly_settlements')
+      .upsert({
+        receptionist_id: receptionistId,
+        week_start: weekStartStr,
+        is_settled: isSettled,
+        history: historyArray,
+        settled_at: settledAt
+      }, {
+        onConflict: 'receptionist_id,week_start'
+      })
+      .select();
+
+    if (error) {
+      console.error('Error saving settlement history:', error);
+      return null;
+    }
+    return data[0];
+  },
+
   async setSettled(receptionistId, isSettled) {
     const weekStart = formatDate(getWeekStart());
 
