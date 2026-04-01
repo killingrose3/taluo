@@ -1284,7 +1284,8 @@
                     <span style="color: ${mandatoryTaskComplete && prepaidTaskComplete ? 'var(--success)' : 'var(--text-muted)'};">
                       ${mandatoryTaskComplete && prepaidTaskComplete ? '✓' : '○'} 预存666 (¥${prepaidTotal.toFixed(0)})
                     </span>
-                    <span style="color: ${mandatoryTaskComplete && monthlyTaskComplete ? '✓' : '○'} 月卡9单 (${stats.monthly}/9)
+                    <span style="color: ${mandatoryTaskComplete && monthlyTaskComplete ? 'var(--success)' : 'var(--text-muted)'};">
+                      ${mandatoryTaskComplete && monthlyTaskComplete ? '✓' : '○'} 月卡9单 (${stats.monthly}/9)
                     </span>
                   </div>
                 </div>
